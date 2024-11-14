@@ -12,6 +12,7 @@ import (
 var Client *mongo.Client
 var UserCollection *mongo.Collection
 var CustomerCollection *mongo.Collection
+var InventoryCollection *mongo.Collection
 
 // InitMongoDB untuk menginisialisasi koneksi ke MongoDB
 func InitMongoDB() error {
@@ -36,5 +37,6 @@ func InitMongoDB() error {
     Client = client
     UserCollection = Client.Database("laundry-pos").Collection("user")
     CustomerCollection = Client.Database("laundry-pos").Collection("customers")
+    InventoryCollection = Client.Database("laundry-pos").Collection("inventory")
     return nil
 }
