@@ -26,12 +26,11 @@ type Customer struct {
 // Model untuk Inventory (Stok barang)
 type Inventory struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	ItemName     string             `bson:"itemName" json:"itemName"`
-	Quantity     int                `bson:"quantity" json:"quantity"`
-	UnitPrice    float64            `bson:"unitPrice" json:"unitPrice"`
-	Supplier     string             `bson:"supplier" json:"supplier"`
-	Expiration   time.Time          `bson:"expiration" json:"expiration"`
-	ReorderLevel int                `bson:"reorderLevel" json:"reorderLevel"`
+	NamaProduk   string             `bson:"namaProduk" json:"namaProduk"`
+	Deskripsi    string             `bson:"deskripsi" json:"deskripsi"`
+	JumlahStok   int                `bson:"jumlahStok" json:"jumlahStok"` // Jumlah barang yang tersedia
+	Harga        string            `bson:"harga" json:"harga"`           // Harga per unit produk
+	TanggalMasuk time.Time          `bson:"tanggalMasuk" json:"tanggalMasuk"` // Tanggal masuk produk ke stok
 }
 
 // Model untuk Report (Laporan transaksi)
