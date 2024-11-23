@@ -2,7 +2,6 @@ package routes
 
 import (
 	"laundry-pos/controllers"
-	"laundry-pos/middleware"
 	"net/http"
 )
 
@@ -29,7 +28,7 @@ func InitRoutes() *http.ServeMux {
 	})
 
 	// Rute untuk customer dengan middleware untuk otentikasi
-	router.Handle("/customers", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router.Handle("/customers", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			controllers.AddCustomer(w, r) // Membuat customer baru
@@ -38,10 +37,11 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	})))
+	}))
+	
 
 	// Rute untuk mengambil customer berdasarkan ID dengan middleware untuk otentikasi
-	router.Handle("/customer-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router.Handle("/customer-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			controllers.GetCustomerByID(w, r) // Mengambil data customer berdasarkan ID
@@ -52,10 +52,10 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	})))
+	}))
 
 	// Rute untuk manajemen inventaris dengan middleware untuk otentikasi
-	router.Handle("/inventory", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router.Handle("/inventory", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			controllers.AddInventory(w, r) // Menambah item ke dalam inventaris
@@ -64,10 +64,10 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	})))
+	}))
 
 	// Rute untuk mengambil inventaris berdasarkan ID dengan middleware untuk otentikasi
-	router.Handle("/inventory-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router.Handle("/inventory-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			controllers.GetInventoryByID(w, r) // Mengambil data inventaris berdasarkan ID
@@ -78,7 +78,7 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	})))
+	}))
 
 	return router
 }
