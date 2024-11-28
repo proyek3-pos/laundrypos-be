@@ -12,11 +12,21 @@ func InitRoutes() *http.ServeMux {
 	router.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			controllers.Register(w, r)
+			controllers.Register(w, r) // Untuk registrasi staff
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	
+	router.HandleFunc("/admin/register", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			controllers.RegisterAdmin(w, r) // Untuk registrasi admin
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	
 
 	router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

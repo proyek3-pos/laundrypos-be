@@ -1,14 +1,14 @@
 package middleware
 
 import (
-    // "laundry-pos/utils"
+    "laundry-pos/utils"
     "net/http"
 )
 // EnableCORS menangani header CORS agar frontend dapat mengakses API
 func EnableCORS(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         // Mengizinkan CORS dari origin tertentu (frontend Anda)
-        w.Header().Set("Access-Control-Allow-Origin", "http://127.0.0.1:5501") // Ganti dengan alamat frontend Anda
+        w.Header().Set("Access-Control-Allow-Origin", "http://127.0.0.1:5500") // Ganti dengan alamat frontend Anda
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
@@ -22,6 +22,20 @@ func EnableCORS(next http.Handler) http.Handler {
         next.ServeHTTP(w, r)
     })
 }
+
+func RoleMiddleware(role string, next http.Handler) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        tokenStr := r.Header.Get("Authorization")
+        claims, err := utils.ValidateJWT(tokenStr)
+        if err != nil || claims.Role != role {
+            http.Error(w, "Forbidden", http.StatusForbidden)
+            return
+        }
+        // Proceed to the next handler if authorized
+        next.ServeHTTP(w, r)
+    }
+}
+
 // func AuthMiddleware(next http.Handler) http.Handler {
 //     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 //         token := r.Header.Get("Authorization")
