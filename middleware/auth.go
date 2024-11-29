@@ -8,7 +8,8 @@ import (
 func EnableCORS(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         // Mengizinkan CORS dari origin tertentu (frontend Anda)
-        w.Header().Set("Access-Control-Allow-Origin", "http://127.0.0.1:5500") // Ganti dengan alamat frontend Anda
+        w.Header().Add("Access-Control-Allow-Origin", "http://127.0.0.1:5500") // Ganti dengan alamat frontend Anda
+        w.Header().Add("Access-Control-Allow-Origin", "https://proyek3-pos.github.io/laundrypos-fe") // Ganti dengan alamat frontend Anda
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
