@@ -10,15 +10,15 @@ import (
 )
 
 func init() {
-    // Menginisialisasi MongoDB saat aplikasi dijalankan
-    if err := config.InitMongoDB(); err != nil {
-        fmt.Printf("Failed to initialize MongoDB: %v\n", err)
+    // Menginisialisasi koneksi ke Supabase (PostgreSQL) melalui GORM
+    if err := config.InitDB(); err != nil {
+        fmt.Printf("Failed to initialize PostgreSQL: %v\n", err)
         panic(err)
     }
-    fmt.Println("MongoDB initialized successfully!")
+    fmt.Println("PostgreSQL initialized successfully!")
 }
 
-// Handler adalah fungsi yang akan dipanggil oleh Vercel
+// Handler adalah fungsi yang akan dipanggil oleh server
 func Handler(w http.ResponseWriter, r *http.Request) {
     // Inisialisasi router
     router := routes.InitRoutes()

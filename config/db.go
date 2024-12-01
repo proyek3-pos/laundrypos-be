@@ -1,42 +1,47 @@
 package config
 
 import (
-    "context"
-    "log"
-    "time"
+	"fmt"
+	"log"
+	"os"
 
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"github.com/joho/godotenv" // Import godotenv untuk memuat file .env
 )
 
-var Client *mongo.Client
-var UserCollection *mongo.Collection
-var CustomerCollection *mongo.Collection
-var InventoryCollection *mongo.Collection
+// DB adalah variabel global untuk koneksi database
+var DB *gorm.DB
 
-// InitMongoDB untuk menginisialisasi koneksi ke MongoDB
-func InitMongoDB() error {
-    uri := "mongodb+srv://karamissuu:karamissu1@cluster0.lyovb.mongodb.net/?retryWrites=true&w=majority"
-    
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
+// InitSupabase untuk menginisialisasi koneksi ke Supabase
+func InitDB() error {
+	// Memuat file .env
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file")
+		return err
+	}
 
-    clientOptions := options.Client().ApplyURI(uri)
-    client, err := mongo.Connect(ctx, clientOptions)
-    if err != nil {
-        log.Fatal("Failed to connect to MongoDB: ", err)
-        return err
-    }
+	// Mengambil nilai variabel dari .env
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
+	dbSslMode := os.Getenv("DB_SSLMODE")
 
-    if err := client.Ping(ctx, nil); err != nil {
-        log.Fatal("MongoDB Ping failed: ", err)
-        return err
-    }
+	// Membuat connection string PostgreSQL
+	dsn := fmt.Sprintf("user=%s password=%s host=%s port=%s dbname=%s sslmode=%s",
+		dbUser, dbPassword, dbHost, dbPort, dbName, dbSslMode)
 
-    log.Println("MongoDB connected successfully")
-    Client = client
-    UserCollection = Client.Database("laundry-pos").Collection("user")
-    CustomerCollection = Client.Database("laundry-pos").Collection("customers")
-    InventoryCollection = Client.Database("laundry-pos").Collection("inventory")
-    return nil
+	// Membuka koneksi ke database
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+		return err
+	}
+
+	log.Println("Connected to Supabase database successfully!")
+	DB = db
+	return nil
 }

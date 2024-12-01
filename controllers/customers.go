@@ -5,10 +5,8 @@ import (
 	"laundry-pos/config"
 	"laundry-pos/models"
 	"net/http"
-	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gorm.io/gorm"
 )
 
 // Fungsi untuk menambah customer baru
@@ -38,12 +36,10 @@ func AddCustomer(w http.ResponseWriter, r *http.Request) {
 
 // Fungsi untuk mendapatkan daftar semua customers
 func GetAllCustomers(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	var customers []models.Customer
 
 	// Query untuk mendapatkan semua customers
-	cursor, err := config.CustomerCollection.Find(ctx, bson.M{})
-	if err != nil {
+	if err := config.DB.Find(&customers).Error; err != nil {
 		http.Error(w, "Failed to fetch customers", http.StatusInternalServerError)
 		return
 	}
@@ -61,18 +57,15 @@ func GetCustomerByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(customerID)
-	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
-		return
-	}
-
-	// Query MongoDB untuk mencari customer berdasarkan ID
+	// Convert ID menjadi UUID (menggunakan GORM UUID)
 	var customer models.Customer
-	err = config.CustomerCollection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&customer)
+	err := config.DB.First(&customer, "id = ?", customerID).Error
 	if err != nil {
-		http.Error(w, "Customer not found", http.StatusNotFound)
+		if err == gorm.ErrRecordNotFound {
+			http.Error(w, "Customer not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Error fetching customer", http.StatusInternalServerError)
 		return
 	}
 
@@ -96,22 +89,8 @@ func UpdateCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update data customer di MongoDB
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	update := bson.M{
-		"$set": bson.M{
-			"firstName":   updatedCustomer.FirstName,
-			"lastName":    updatedCustomer.LastName,
-			"phoneNumber": updatedCustomer.PhoneNumber,
-			"email":       updatedCustomer.Email,
-			"address":     updatedCustomer.Address,
-		},
-	}
-
-	_, err = config.CustomerCollection.UpdateOne(ctx, bson.M{"_id": id}, update)
-	if err != nil {
+	// Update data customer di database
+	if err := config.DB.Model(&models.Customer{}).Where("id = ?", customerID).Updates(updatedCustomer).Error; err != nil {
 		http.Error(w, "Failed to update customer", http.StatusInternalServerError)
 		return
 	}
@@ -129,19 +108,8 @@ func DeleteCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(customerID)
-	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
-		return
-	}
-
-	// Hapus customer dari MongoDB
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	_, err = config.CustomerCollection.DeleteOne(ctx, bson.M{"_id": id})
-	if err != nil {
+	// Hapus customer dari database
+	if err := config.DB.Delete(&models.Customer{}, "id = ?", customerID).Error; err != nil {
 		http.Error(w, "Failed to delete customer", http.StatusInternalServerError)
 		return
 	}
