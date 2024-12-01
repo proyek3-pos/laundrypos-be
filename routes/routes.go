@@ -12,21 +12,11 @@ func InitRoutes() *http.ServeMux {
 	router.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			controllers.Register(w, r) // Untuk registrasi staff
+			controllers.Register(w, r)
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	
-	router.HandleFunc("/admin/register", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.RegisterAdmin(w, r) // Untuk registrasi admin
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	
 
 	router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -48,7 +38,6 @@ func InitRoutes() *http.ServeMux {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	
 
 	// Rute untuk mengambil customer berdasarkan ID dengan middleware untuk otentikasi
 	router.Handle("/customer-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,32 +48,6 @@ func InitRoutes() *http.ServeMux {
 			controllers.UpdateCustomer(w, r) // Mengupdate data customer berdasarkan ID
 		case http.MethodDelete:
 			controllers.DeleteCustomer(w, r) // Menghapus data customer berdasarkan ID
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-
-	// Rute untuk manajemen inventaris dengan middleware untuk otentikasi
-	router.Handle("/inventory", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.AddInventory(w, r) // Menambah item ke dalam inventaris
-		case http.MethodGet:
-			controllers.GetAllInventory(w, r) // Mengambil semua data inventaris
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-
-	// Rute untuk mengambil inventaris berdasarkan ID dengan middleware untuk otentikasi
-	router.Handle("/inventory-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			controllers.GetInventoryByID(w, r) // Mengambil data inventaris berdasarkan ID
-		case http.MethodPut:
-			controllers.UpdateInventory(w, r) // Mengupdate data inventaris berdasarkan ID
-		case http.MethodDelete:
-			controllers.DeleteInventory(w, r) // Menghapus data inventaris berdasarkan ID
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}

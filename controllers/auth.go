@@ -1,14 +1,13 @@
 package controllers
 
 import (
-    "context"
-    "encoding/json"
-    "laundry-pos/config"
-    "laundry-pos/models"
-    "laundry-pos/utils"
-    "net/http"
-    "time"
+	"encoding/json"
+	"laundry-pos/config"
+	"laundry-pos/models"
+	"laundry-pos/utils"
+	"net/http"
 
+	"github.com/google/uuid"
     "golang.org/x/crypto/bcrypt"
     "go.mongodb.org/mongo-driver/bson"
 )
@@ -98,11 +97,6 @@ func RegisterAdmin(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Failed to create admin", http.StatusInternalServerError)
         return
     }
-
-    w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(map[string]string{"message": "Admin registered successfully", "role": admin.Role})
-}
-
 
 // Fungsi untuk login
 func Login(w http.ResponseWriter, r *http.Request) {

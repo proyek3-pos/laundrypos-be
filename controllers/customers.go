@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"context"
 	"encoding/json"
 	"laundry-pos/config"
 	"laundry-pos/models"
@@ -28,12 +27,7 @@ func AddCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Simpan customer ke database
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Insert customer ke dalam MongoDB
-	_, err := config.CustomerCollection.InsertOne(ctx, customer)
-	if err != nil {
+	if err := config.DB.Create(&customer).Error; err != nil {
 		http.Error(w, "Failed to create customer", http.StatusInternalServerError)
 		return
 	}
@@ -51,22 +45,6 @@ func GetAllCustomers(w http.ResponseWriter, r *http.Request) {
 	cursor, err := config.CustomerCollection.Find(ctx, bson.M{})
 	if err != nil {
 		http.Error(w, "Failed to fetch customers", http.StatusInternalServerError)
-		return
-	}
-	defer cursor.Close(ctx)
-
-	var customers []models.Customer
-	for cursor.Next(ctx) {
-		var customer models.Customer
-		if err := cursor.Decode(&customer); err != nil {
-			http.Error(w, "Failed to decode customer data", http.StatusInternalServerError)
-			return
-		}
-		customers = append(customers, customer)
-	}
-
-	if err := cursor.Err(); err != nil {
-		http.Error(w, "Cursor error", http.StatusInternalServerError)
 		return
 	}
 
@@ -108,13 +86,6 @@ func UpdateCustomer(w http.ResponseWriter, r *http.Request) {
 	customerID := r.URL.Query().Get("id")
 	if customerID == "" {
 		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(customerID)
-	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
 		return
 	}
 
