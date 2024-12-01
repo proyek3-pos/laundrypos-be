@@ -18,9 +18,9 @@ func AddCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validasi data customer (contoh: pastikan nama depan dan belakang ada)
-	if customer.FirstName == "" || customer.LastName == "" {
-		http.Error(w, "First Name and Last Name are required", http.StatusBadRequest)
+	// Validasi data customer (pastikan first name, last name, dan phone number ada)
+	if customer.FirstName == "" || customer.LastName == "" || customer.PhoneNumber == "" {
+		http.Error(w, "First Name, Last Name, and Phone Number are required", http.StatusBadRequest)
 		return
 	}
 
@@ -32,6 +32,57 @@ func AddCustomer(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Customer added successfully"})
+}
+
+// Fungsi untuk mencari atau membuat customer baru berdasarkan nama dan nomor telepon
+func FindOrCreateCustomer(w http.ResponseWriter, r *http.Request) {
+	var customerInput models.Customer
+
+	// Decode JSON body dari request ke dalam struct customerInput
+	if err := json.NewDecoder(r.Body).Decode(&customerInput); err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	// Validasi input
+	if customerInput.FirstName == "" || customerInput.LastName == "" || customerInput.PhoneNumber == "" {
+		http.Error(w, "First Name, Last Name, and Phone Number are required", http.StatusBadRequest)
+		return
+	}
+
+	var existingCustomer models.Customer
+
+	// Cari customer berdasarkan first name, last name, dan nomor telepon
+	err := config.DB.Where("first_name = ? AND last_name = ? AND phone_number = ?", customerInput.FirstName, customerInput.LastName, customerInput.PhoneNumber).First(&existingCustomer).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// Jika customer tidak ditemukan, buat customer baru
+			if createErr := config.DB.Create(&customerInput).Error; createErr != nil {
+				http.Error(w, "Failed to create customer", http.StatusInternalServerError)
+				return
+			}
+
+			// Berikan respons bahwa customer telah dibuat
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"message":  "Customer created successfully",
+				"customer": customerInput,
+			})
+			return
+		}
+
+		// Jika ada error lain
+		http.Error(w, "Error finding customer", http.StatusInternalServerError)
+		return
+	}
+
+	// Jika customer ditemukan, berikan respons dengan data customer
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":  "Customer found",
+		"customer": existingCustomer,
+	})
 }
 
 // Fungsi untuk mendapatkan daftar semua customers
