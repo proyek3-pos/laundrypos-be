@@ -62,15 +62,15 @@ func InitRoutes() *http.ServeMux {
 		}
 	}))
 
-	// Rute untuk mencari atau membuat customer baru berdasarkan nama dan nomor telepon
-	router.Handle("/findcustomer", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.FindOrCreateCustomer(w, r) // Memanggil fungsi FindOrCreateCustomer
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	}))
+	// // Rute untuk mencari atau membuat customer baru berdasarkan nama dan nomor telepon
+	// router.Handle("/findcustomer", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 	switch r.Method {
+	// 	case http.MethodPost:
+	// 		controllers.FindOrCreateCustomer(w, r) // Memanggil fungsi FindOrCreateCustomer
+	// 	default:
+	// 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	// 	}
+	// }))
 
 	// Rute untuk membuat pembayaran menggunakan Midtrans
 	router.HandleFunc("/create-payment", func(w http.ResponseWriter, r *http.Request) {

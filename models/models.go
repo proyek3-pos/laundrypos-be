@@ -1,66 +1,80 @@
 package models
 
 import (
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"time"
-
-	"github.com/google/uuid" // Untuk UUID
 )
 
 // Model untuk User
 type User struct {
-	ID       uuid.UUID `json:"id" gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
-	Username string    `json:"username" gorm:"unique;not null"`
-	Password string    `json:"password" gorm:"not null"`
-	Role     string    `json:"role" gorm:"not null"` // Contoh: "admin" atau "staff"
+	ID       primitive.ObjectID `json:"id" bson:"_id,omitempty"` // ID menggunakan ObjectID untuk MongoDB
+	Username string             `json:"username" bson:"username"`
+	Password string             `json:"password" bson:"password"`
+	Role     string             `json:"role" bson:"role"` // Contoh: "admin" atau "staff"
 }
 
 // Model untuk Customer
 type Customer struct {
-	ID          uuid.UUID `json:"id" gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
-	FirstName   string    `json:"firstName" gorm:"not null"`
-	LastName    string    `json:"lastName" gorm:"not null"`
-	PhoneNumber string    `json:"phoneNumber" gorm:"unique;not null"`
+	ID          primitive.ObjectID `json:"id" bson:"_id,omitempty"`    // ID menggunakan ObjectID untuk MongoDB
+	FirstName   string             `json:"firstName" bson:"firstName"`
+	LastName    string             `json:"lastName" bson:"lastName"`
+	PhoneNumber string             `json:"phoneNumber" bson:"phoneNumber"`
 }
 
 // Model untuk Report (Laporan transaksi)
 type Report struct {
-	ID                uuid.UUID `json:"id" gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
-	ReportDate        time.Time `json:"reportDate" gorm:"not null"`
-	TotalTransactions int       `json:"totalTransactions" gorm:"not null"`
-	TotalIncome       float64   `json:"totalIncome" gorm:"not null"`
-	TotalExpenses     float64   `json:"totalExpenses" gorm:"not null"`
-	NetProfit         float64   `json:"netProfit" gorm:"not null"`
+	ID                primitive.ObjectID `json:"id" bson:"_id,omitempty"` // ID menggunakan ObjectID untuk MongoDB
+	ReportDate        time.Time          `json:"reportDate" bson:"reportDate"`
+	TotalTransactions int                `json:"totalTransactions" bson:"totalTransactions"`
+	TotalIncome       float64            `json:"totalIncome" bson:"totalIncome"`
+	TotalExpenses     float64            `json:"totalExpenses" bson:"totalExpenses"`
+	NetProfit         float64            `json:"netProfit" bson:"netProfit"`
 }
 
 // Model untuk Inventory (Stok barang)
 type Service struct {
-	ID          uuid.UUID `json:"id" gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
-	ServiceName string    `json:"serviceName" gorm:"not null"` // Nama layanan (misalnya, "Cuci Kering")
-	Description string    `json:"description"`                 // Deskripsi layanan
-	UnitPrice   float64   `json:"unitPrice" gorm:"not null"`   // Harga per unit (misalnya, per kg)
+	ID          primitive.ObjectID `json:"id" bson:"_id,omitempty"`    // ID menggunakan ObjectID untuk MongoDB
+	ServiceName string             `json:"serviceName" bson:"serviceName"` // Nama layanan (misalnya, "Cuci Kering")
+	Description string             `json:"description" bson:"description"` // Deskripsi layanan
+	UnitPrice   float64            `json:"unitPrice" bson:"unitPrice"`    // Harga per unit (misalnya, per kg)
 }
 
 // Model untuk Transaction (Transaksi)
 type Transaction struct {
-	ID              uuid.UUID         `json:"id" gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
-	TransactionID   string            `json:"transactionId" gorm:"unique;not null"`
-	CustomerID      uuid.UUID         `json:"customerId" gorm:"not null"`
-	Customer        Customer          `gorm:"foreignKey:CustomerID;references:ID"`
-	TransactionDate time.Time         `json:"transactionDate" gorm:"not null"`
-	Items           []TransactionItem `json:"items" gorm:"foreignKey:TransactionID;references:ID"`
-	TotalAmount     float64           `json:"totalAmount" gorm:"not null"`
-	PaymentMethod   string            `json:"paymentMethod" gorm:"not null"`
-	Status          string            `json:"status" gorm:"not null"`
+	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`        // ID menggunakan ObjectID untuk MongoDB
+	TransactionID   string             `json:"transactionId" bson:"transactionId"` // ID Transaksi
+	CustomerID      primitive.ObjectID `json:"customerId" bson:"customerId"` // Referensi ke Customer
+	Customer        Customer           `json:"customer" bson:"customer"` // Embedded Customer Document (bisa menggunakan ID atau seluruh dokumen)
+	TransactionDate time.Time          `json:"transactionDate" bson:"transactionDate"`
+	Items           []TransactionItem  `json:"items" bson:"items"` // Item terkait transaksi
+	TotalAmount     float64            `json:"totalAmount" bson:"totalAmount"`
+	PaymentMethod   string             `json:"paymentMethod" bson:"paymentMethod"`
+	Status          string             `json:"status" bson:"status"`
 }
 
 // Model untuk Item dalam transaksi
 type TransactionItem struct {
-    ID          uuid.UUID `json:"id" gorm:"type:uuid;default:uuid_generate_v4();primaryKey"`
-    TransactionID uuid.UUID `json:"transactionId" gorm:"not null"`
-    Transaction   Transaction `gorm:"foreignKey:TransactionID;references:ID"`
-    ServiceID    uuid.UUID `json:"serviceId" gorm:"not null"` // Mengarah ke Service
-    Service      Service   `gorm:"foreignKey:ServiceID;references:ID"`
-    Quantity     int       `json:"quantity" gorm:"not null"`
-    UnitPrice    float64   `json:"unitPrice" gorm:"not null"`
-    TotalPrice   float64   `json:"totalPrice" gorm:"not null"`
+	ID          primitive.ObjectID `json:"id" bson:"_id,omitempty"` // ID menggunakan ObjectID untuk MongoDB
+	TransactionID primitive.ObjectID `json:"transactionId" bson:"transactionId"` // Referensi ke Transaksi
+	Transaction   Transaction       `json:"transaction" bson:"transaction"`  // Embedded Transaction Document
+	ServiceID    primitive.ObjectID `json:"serviceId" bson:"serviceId"`     // Referensi ke Service
+	Service      Service             `json:"service" bson:"service"` // Embedded Service Document
+	Quantity     int                 `json:"quantity" bson:"quantity"`
+	UnitPrice    float64             `json:"unitPrice" bson:"unitPrice"`
+	TotalPrice   float64             `json:"totalPrice" bson:"totalPrice"`
+}
+
+type Payment struct {
+    OrderID     string          `json:"order_id" bson:"order_id"`
+    GrossAmount float64         `json:"gross_amount" bson:"gross_amount"`
+    SnapURL     string          `json:"snap_url" bson:"snap_url"`
+    Customer    PaymentCustomer `json:"customer" bson:"customer"`
+    Status      string          `json:"status" bson:"status"` // Status pembayaran (misalnya, Pending, Completed)
+}
+
+// Model untuk informasi Customer dalam pembayaran
+type PaymentCustomer struct {
+    Name  string `json:"name" bson:"name"`
+    Email string `json:"email" bson:"email"`
+    Phone string `json:"phone" bson:"phone"`
 }

@@ -1,15 +1,16 @@
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"laundry-pos/config"
 	"laundry-pos/models"
 	"laundry-pos/utils"
 	"net/http"
+	"time"
 
-	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 // Fungsi untuk registrasi pengguna baru
@@ -22,12 +23,8 @@ func Register(w http.ResponseWriter, r *http.Request) {
 
 	// Cek apakah username sudah digunakan
 	var existingUser models.User
-	err := config.DB.Where("username = ?", user.Username).First(&existingUser).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		http.Error(w, "Error checking username", http.StatusInternalServerError)
-		return
-	}
-	if existingUser.ID != uuid.Nil {
+	err := config.UserCollection.FindOne(context.TODO(), bson.M{"username": user.Username}).Decode(&existingUser)
+	if err == nil {
 		http.Error(w, "Username already exists", http.StatusBadRequest)
 		return
 	}
@@ -40,8 +37,12 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	}
 	user.Password = string(hashedPassword)
 
-	// Simpan data pengguna ke database Supabase
-	if err := config.DB.Create(&user).Error; err != nil {
+	// Simpan data pengguna ke database
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err = config.UserCollection.InsertOne(ctx, user)
+	if err != nil {
 		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
@@ -50,6 +51,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
 }
 
+// Fungsi untuk login
 // Fungsi untuk login
 func Login(w http.ResponseWriter, r *http.Request) {
 	var creds struct {
@@ -63,13 +65,9 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	// Mencari pengguna berdasarkan username
 	var user models.User
-	err := config.DB.Where("username = ?", creds.Username).First(&user).Error
+	err := config.UserCollection.FindOne(context.TODO(), bson.M{"username": creds.Username}).Decode(&user)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
-			return
-		}
-		http.Error(w, "Error fetching user", http.StatusInternalServerError)
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
@@ -81,7 +79,9 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate token JWT jika login berhasil
-	token, err := utils.GenerateJWT(user.ID.String(), user.Role) // Pass user.ID and user.Role
+	// Convert user.ID (UUID) to string using String() method
+	token, err := utils.GenerateJWT(user.Username, user.ID.String()) // Use user.ID.String() to convert UUID to string
+
 	if err != nil {
 		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 		return
