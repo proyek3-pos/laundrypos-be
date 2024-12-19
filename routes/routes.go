@@ -30,11 +30,12 @@ func InitRoutes() *http.ServeMux {
 	router.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			controllers.Logout(w, r) // Fungsi logout
+			controllers.Logout(w, r) // Memanggil fungsi logout
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	
 
 	// Rute untuk customer
 	router.Handle("/customers", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
