@@ -89,3 +89,30 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
+
+func Logout(w http.ResponseWriter, r *http.Request) {
+	// Ambil token dari header Authorization
+	token := r.Header.Get("Authorization")
+	if token == "" {
+		http.Error(w, "Token required", http.StatusBadRequest)
+		return
+	}
+
+	// Hilangkan prefix "Bearer " jika ada
+	if len(token) > 7 && token[:7] == "Bearer " {
+		token = token[7:]
+	}
+
+	// Verifikasi token dan ambil expiry time
+	claims, err := utils.ValidateJWT(token)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// Tambahkan token ke blacklist
+	utils.AddToBlacklist(token, time.Unix(claims.ExpiresAt, 0))
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
+}
