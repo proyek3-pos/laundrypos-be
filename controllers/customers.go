@@ -21,12 +21,6 @@ func AddCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validasi data customer (contoh: pastikan nama depan dan belakang ada)
-	if customer.FirstName == "" || customer.LastName == "" {
-		http.Error(w, "First Name and Last Name are required", http.StatusBadRequest)
-		return
-	}
-
 	// Simpan customer ke database
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -131,10 +125,9 @@ func UpdateCustomer(w http.ResponseWriter, r *http.Request) {
 
 	update := bson.M{
 		"$set": bson.M{
-			"firstName":   updatedCustomer.FirstName,
-			"lastName":    updatedCustomer.LastName,
+			"fullName":   updatedCustomer.FullName,
 			"phoneNumber": updatedCustomer.PhoneNumber,
-
+			"email":      updatedCustomer.Email,
 		},
 	}
 

@@ -14,6 +14,8 @@ var UserCollection *mongo.Collection
 var CustomerCollection *mongo.Collection
 var InventoryCollection *mongo.Collection
 var PaymentCollection *mongo.Collection
+var ServiceCollection *mongo.Collection
+var TransactionCollection *mongo.Collection
 
 // InitMongoDB untuk menginisialisasi koneksi ke MongoDB
 func InitMongoDB() error {
@@ -40,6 +42,8 @@ func InitMongoDB() error {
     CustomerCollection = Client.Database("laundry-pos").Collection("customers")
     InventoryCollection = Client.Database("laundry-pos").Collection("inventory")
 	PaymentCollection = client.Database("laundry-pos").Collection("payments")
+	ServiceCollection = client.Database("laundry-pos").Collection("service")
+	TransactionCollection = client.Database("laundry-pos").Collection("transactions")
 
     return nil
 }

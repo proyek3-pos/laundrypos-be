@@ -72,6 +72,56 @@ func InitRoutes() *http.ServeMux {
 	// 	}
 	// }))
 
+	// Rute untuk Service
+	router.Handle("/services", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			controllers.CreateService(w, r) // Tambah layanan baru
+		case http.MethodGet:
+			controllers.GetAllServices(w, r) // Ambil semua data layanan
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
+	router.Handle("/service-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			controllers.GetServiceByID(w, r) // Ambil layanan berdasarkan ID
+		case http.MethodPut:
+			controllers.UpdateService(w, r) // Update layanan
+		case http.MethodDelete:
+			controllers.DeleteService(w, r) // Hapus layanan
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
+	// Rute untuk Transaksi
+	router.Handle("/transactions", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			controllers.CreateTransaction(w, r) // Buat transaksi baru
+		case http.MethodGet:
+			controllers.GetTransactions(w, r) // Ambil semua transaksi
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
+	router.Handle("/transaction-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			controllers.GetTransactionByID(w, r) // Ambil transaksi berdasarkan ID
+		case http.MethodPut:
+			controllers.UpdateTransaction(w, r) // Update layanan
+		case http.MethodDelete:
+			controllers.DeleteTransaction(w, r) // Hapus layanan
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
 	// Rute untuk membuat pembayaran menggunakan Midtrans
 	router.HandleFunc("/create-payment", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

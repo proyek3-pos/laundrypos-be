@@ -7,22 +7,35 @@ import (
 // EnableCORS menangani header CORS agar frontend dapat mengakses API
 func EnableCORS(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Mengizinkan CORS dari origin tertentu (frontend Anda)
-        w.Header().Add("Access-Control-Allow-Origin", "http://127.0.0.1:5500") // Ganti dengan alamat frontend Anda
-        w.Header().Add("Access-Control-Allow-Origin", "https://proyek3-pos.github.io/laundrypos-fe") // Ganti dengan alamat frontend Anda
+        origin := r.Header.Get("Origin")
+        
+        // Daftar origin yang diperbolehkan
+        allowedOrigins := map[string]bool{
+            "http://127.0.0.1:5500":                      true,
+            "https://proyek3-pos.github.io/laundrypos-fe": true,
+            "https://proyek3-pos.github.io/swagger":       true,
+            "https://proyek3-pos.github.io":          true,
+        }
+
+        // Periksa apakah origin dalam daftar yang diizinkan
+        if allowedOrigins[origin] {
+            w.Header().Set("Access-Control-Allow-Origin", origin)
+        }
+
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-        // Cek jika request adalah preflight request (OPTIONS)
+        // Tangani preflight request (OPTIONS)
         if r.Method == http.MethodOptions {
             w.WriteHeader(http.StatusOK)
             return
         }
 
-        // Lanjutkan ke handler berikutnya jika bukan preflight
+        // Lanjutkan ke handler berikutnya
         next.ServeHTTP(w, r)
     })
 }
+
 
 func RoleMiddleware(role string, next http.Handler) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {

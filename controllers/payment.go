@@ -12,86 +12,97 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/veritrans/go-midtrans"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
-// Struktur permintaan pembayaran
-type PaymentRequest struct {
-	OrderID     string  `json:"order_id"`
-	GrossAmount float64 `json:"gross_amount"`
-	Customer    struct {
-		Name  string `json:"name"`
-		Email string `json:"email"`
-		Phone string `json:"phone"`
-	} `json:"customer"`
-}
-
-// Fungsi untuk membuat pembayaran menggunakan Midtrans dan menyimpannya di MongoDB
+// Membuat pembayaran menggunakan Midtrans
 func CreatePayment(w http.ResponseWriter, r *http.Request) {
-	var paymentReq PaymentRequest
+	ctx := context.Background()
+	var paymentReq models.Payment
 	if err := json.NewDecoder(r.Body).Decode(&paymentReq); err != nil {
 		http.Error(w, "Input tidak valid", http.StatusBadRequest)
 		return
 	}
 
-	// Generate UUID untuk Order ID jika tidak disertakan
+	// Pastikan transaction_id tersedia
+	if paymentReq.TransactionID.IsZero() {
+		http.Error(w, "Transaction ID tidak disediakan", http.StatusBadRequest)
+		return
+	}
+
+	// Ambil transaksi dari database berdasarkan TransactionID yang diberikan
+	var transaction models.Transaction
+	err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": paymentReq.TransactionID}).Decode(&transaction)
+	if err != nil {
+		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
+		return
+	}
+
+	// Menghitung gross_amount dalam cent
+	// Jangan kalikan dua kali! Pastikan ini adalah dalam rupiah saja (misalnya 16000)
+	// Jika transaksi sudah dalam rupiah, kirim langsung dengan mengalikannya hanya di bagian snapReq.
+
+	paymentReq.GrossAmount = transaction.TotalAmount // Jangan kalikan dengan 100 di sini, ini sudah dalam rupiah
+
+	// Generate OrderID jika belum disediakan
 	if paymentReq.OrderID == "" {
-		paymentReq.OrderID = uuid.New().String() // Membuat order ID unik
+		paymentReq.OrderID = uuid.New().String()
 	}
 
-	// Inisialisasi Midtrans Client
+	// Inisialisasi Midtrans Client dan Snap Gateway
 	midtransClient := services.MidtransClient()
+	snapGateway := midtrans.SnapGateway{Client: *midtransClient}
 
-	// Inisialisasi Snap Gateway
-	snapGateway := midtrans.SnapGateway{
-		Client: *midtransClient, // Dereference pointer menjadi nilai
-	}
-
-	// Buat permintaan transaksi Snap
+	// Membuat request ke Midtrans dengan data transaksi
 	snapReq := &midtrans.SnapReq{
 		TransactionDetails: midtrans.TransactionDetails{
 			OrderID:  paymentReq.OrderID,
-			GrossAmt: int64(paymentReq.GrossAmount), // Konversi ke int64 dan perbaiki penghitungan grossAmount
-		},
-		CustomerDetail: &midtrans.CustDetail{
-			FName: paymentReq.Customer.Name,
-			Email: paymentReq.Customer.Email,
-			Phone: paymentReq.Customer.Phone,
+			GrossAmt: int64(paymentReq.GrossAmount), // Kalikan dengan 100 hanya di sini untuk cent
 		},
 	}
 
-	// Dapatkan Snap URL
 	snapResp, err := snapGateway.GetToken(snapReq)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Gagal membuat transaksi: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Gagal membuat pembayaran: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Simpan informasi transaksi pembayaran ke MongoDB
-	payment := models.Payment{
-		OrderID:     paymentReq.OrderID,
-		GrossAmount: paymentReq.GrossAmount,
-		SnapURL:     snapResp.RedirectURL,
-		Customer: models.PaymentCustomer{
-			Name:  paymentReq.Customer.Name,
-			Email: paymentReq.Customer.Email,
-			Phone: paymentReq.Customer.Phone,
-		},
-		Status: "Pending", // Status pembayaran bisa diset ke 'Pending' dulu
-	}
+	// Tambahkan snap_url dan status pembayaran
+	paymentReq.SnapURL = snapResp.RedirectURL
+	paymentReq.Status = "Pending"
+	paymentReq.CreatedAt = time.Now()
 
-	// Menyimpan transaksi pembayaran ke MongoDB
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	_, err = config.PaymentCollection.InsertOne(ctx, payment)
+	// Simpan pembayaran
+	_, err = config.PaymentCollection.InsertOne(ctx, paymentReq)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Gagal menyimpan data pembayaran: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Gagal menyimpan pembayaran", http.StatusInternalServerError)
 		return
 	}
 
-	// Kembalikan Snap URL ke client
-	json.NewEncoder(w).Encode(map[string]string{
-		"snap_url": snapResp.RedirectURL,
-		"order_id": paymentReq.OrderID,
-	})
+	// Ambil informasi customer dari database berdasarkan CustomerID yang ada di transaksi
+	var customer models.Customer
+	err = config.CustomerCollection.FindOne(ctx, bson.M{"_id": transaction.CustomerID}).Decode(&customer)
+	if err != nil {
+		http.Error(w, "Customer tidak ditemukan", http.StatusNotFound)
+		return
+	}
+
+	// Kirim data konfirmasi pembayaran yang diperlukan
+	confirmationData := map[string]interface{}{
+		"fullName":     customer.FullName,
+		"phoneNumber":  customer.PhoneNumber,
+		"email":        customer.Email,
+		"service_name": transaction.Items[0].Service.ServiceName,
+		"quantity":     transaction.Items[0].Quantity,
+		"total_amount": transaction.TotalAmount,
+	}
+
+	// Kirim response dengan snap_url, order_id, dan konfirmasi data
+	response := map[string]interface{}{
+		"snap_url":          paymentReq.SnapURL,
+		"order_id":          paymentReq.OrderID,
+		"confirmation_data": confirmationData, // Data konfirmasi transaksi
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
