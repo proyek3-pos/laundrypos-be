@@ -4,6 +4,7 @@ import (
     "github.com/dgrijalva/jwt-go"
     "time"
     "os"
+    "sync"
 )
 
 var jwtKey = []byte(os.Getenv("JWT_SECRET_KEY")) // Load the secret key from environment variables
@@ -47,4 +48,27 @@ func ValidateJWT(tokenStr string) (*JWTClaims, error) {
     }
 
     return claims, nil
+}
+
+var blacklist = struct {
+	sync.RWMutex
+	tokens map[string]time.Time
+}{tokens: make(map[string]time.Time)}
+
+// AddToBlacklist menambahkan token ke daftar blacklist
+func AddToBlacklist(token string, expiry time.Time) {
+	blacklist.Lock()
+	defer blacklist.Unlock()
+	blacklist.tokens[token] = expiry
+}
+
+// IsTokenBlacklisted mengecek apakah token ada dalam blacklist
+func IsTokenBlacklisted(token string) bool {
+	blacklist.RLock()
+	defer blacklist.RUnlock()
+	expiry, exists := blacklist.tokens[token]
+	if !exists {
+		return false
+	}
+	return time.Now().Before(expiry)
 }

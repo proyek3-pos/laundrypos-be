@@ -77,3 +77,26 @@ func RoleMiddleware(role string, next http.Handler) http.HandlerFunc {
 //         next.ServeHTTP(w, r)
 //     })
 // }
+
+
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		if len(token) > 7 && token[:7] == "Bearer " {
+			token = token[7:]
+		}
+
+		if token == "" || utils.IsTokenBlacklisted(token) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+        _, err := utils.ValidateJWT(token)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
