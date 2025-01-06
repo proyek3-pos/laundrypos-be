@@ -8,22 +8,23 @@ import (
 func EnableCORS(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         origin := r.Header.Get("Origin")
-
-        // Daftar origin yang diizinkan
+        
+        // Daftar origin yang diperbolehkan
         allowedOrigins := map[string]bool{
-            "http://127.0.0.1:5500":                      true,
+            "http://127.0.0.1:5500":                       true,
             "https://proyek3-pos.github.io/laundrypos-fe": true,
             "https://proyek3-pos.github.io/swagger":       true,
-            "https://proyek3-pos.github.io":              true,
+            "https://proyek3-pos.github.io":               true,
         }
 
         // Periksa apakah origin diizinkan
         if allowedOrigins[origin] {
             w.Header().Set("Access-Control-Allow-Origin", origin)
             w.Header().Set("Access-Control-Allow-Credentials", "true") // Mengizinkan kredensial
-            w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-            w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
         }
+
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
         // Tangani preflight request (OPTIONS)
         if r.Method == http.MethodOptions {
@@ -31,10 +32,10 @@ func EnableCORS(next http.Handler) http.Handler {
             return
         }
 
-        // Lanjutkan ke handler berikutnya
         next.ServeHTTP(w, r)
     })
 }
+
 
 
 
