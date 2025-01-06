@@ -11,16 +11,15 @@ func EnableCORS(next http.Handler) http.Handler {
         
         // Daftar origin yang diperbolehkan
         allowedOrigins := map[string]bool{
-            "http://127.0.0.1:5500":                       true,
+            "http://127.0.0.1:5500":                      true,
             "https://proyek3-pos.github.io/laundrypos-fe": true,
             "https://proyek3-pos.github.io/swagger":       true,
-            "https://proyek3-pos.github.io":               true,
+            "https://proyek3-pos.github.io":          true,
         }
 
-        // Periksa apakah origin diizinkan
+        // Periksa apakah origin dalam daftar yang diizinkan
         if allowedOrigins[origin] {
             w.Header().Set("Access-Control-Allow-Origin", origin)
-            w.Header().Set("Access-Control-Allow-Credentials", "true") // Mengizinkan kredensial
         }
 
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -32,53 +31,24 @@ func EnableCORS(next http.Handler) http.Handler {
             return
         }
 
+        // Lanjutkan ke handler berikutnya
         next.ServeHTTP(w, r)
     })
 }
 
 
-
-
-func RoleMiddleware(requiredRole string, next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Ambil token dari header Authorization
-        token := r.Header.Get("Authorization")
-        if len(token) < 7 || token[:7] != "Bearer " {
-            http.Error(w, "Unauthorized: Token format salah", http.StatusUnauthorized)
+func RoleMiddleware(role string, next http.Handler) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        tokenStr := r.Header.Get("Authorization")
+        claims, err := utils.ValidateJWT(tokenStr)
+        if err != nil || claims.Role != role {
+            http.Error(w, "Forbidden", http.StatusForbidden)
             return
         }
-
-        token = token[7:]
-
-        // Validasi token JWT
-        claims, err := utils.ValidateJWT(token)
-        if err != nil {
-            http.Error(w, "Token tidak valid atau kedaluwarsa", http.StatusUnauthorized)
-            return
-        }
-
-        // Periksa apakah role valid
-        allowedRoles := map[string]bool{
-            "admin": true,
-            "staff": true,
-        }
-
-        if !allowedRoles[claims.Role] {
-            http.Error(w, "Unknown role. Please contact administrator.", http.StatusForbidden)
-            return
-        }
-
-        // Periksa apakah role cocok
-        if claims.Role != requiredRole {
-            http.Error(w, "Access denied", http.StatusForbidden)
-            return
-        }
-
-        // Lanjutkan ke handler yang dimaksud
+        // Proceed to the next handler if authorized
         next.ServeHTTP(w, r)
-    })
+    }
 }
-
 
 // func AuthMiddleware(next http.Handler) http.Handler {
 //     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,36 +83,24 @@ func AuthMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         // Ambil token dari header Authorization
         token := r.Header.Get("Authorization")
-        if len(token) < 7 || token[:7] != "Bearer " {
+
+        if len(token) > 7 && token[:7] == "Bearer " {
+            // Token adalah Bearer token, ambil bagian setelah 'Bearer '
+            token = token[7:]
+
+            // Sekarang token tidak termasuk awalan 'Bearer ', verifikasi token
+            _, err := utils.ValidateJWT(token)
+            if err != nil {
+                http.Error(w, "Unauthorized", http.StatusUnauthorized)
+                return
+            }
+            // Lanjutkan ke handler berikutnya jika token valid
+            next.ServeHTTP(w, r)
+        } else {
             http.Error(w, "Unauthorized: Token format salah", http.StatusUnauthorized)
-            return
         }
-
-        // Ambil token tanpa 'Bearer '
-        token = token[7:]
-
-        // Periksa apakah token ada dalam blacklist
-        if utils.IsTokenBlacklisted(token) {
-            http.Error(w, "Token telah di-logout", http.StatusUnauthorized)
-            return
-        }
-
-        // Validasi token JWT
-        claims, err := utils.ValidateJWT(token)
-        if err != nil {
-            http.Error(w, "Token tidak valid atau kedaluwarsa", http.StatusUnauthorized)
-            return
-        }
-
-        // Tambahkan informasi pengguna ke request untuk digunakan oleh handler selanjutnya
-        r.Header.Set("X-User-ID", claims.UserID)
-        r.Header.Set("X-Role", claims.Role)
-
-        // Lanjutkan ke handler berikutnya
-        next.ServeHTTP(w, r)
     })
 }
-
 
 func RoleAuthorization(requiredRole string) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
@@ -158,18 +116,14 @@ func RoleAuthorization(requiredRole string) http.HandlerFunc {
             return
         }
 
-        // Validasi role, tambahkan logika untuk menangani role yang tidak dikenal
-        if claims.Role != "admin" && claims.Role != "staff" {
-            http.Error(w, "Unknown role. Please contact administrator.", http.StatusForbidden)
-            return
-        }
-
+        // Cek apakah role cocok
         if claims.Role != requiredRole {
             http.Error(w, "Access denied", http.StatusForbidden)
             return
         }
 
-        // Lanjut ke handler jika role cocok
+        // Lanjut ke handler berikutnya
         http.DefaultServeMux.ServeHTTP(w, r)
     }
 }
+
