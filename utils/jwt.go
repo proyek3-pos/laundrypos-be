@@ -17,38 +17,55 @@ type JWTClaims struct {
 }
 
 // GenerateJWT generates a JWT token for the user with ID and role
-func GenerateJWT(userID, role string) (string, error) {
-    expirationTime := time.Now().Add(1 * time.Hour)
+func GenerateJWT(userID, role, username string) (string, error) {
+    expirationTime := time.Now().Add(24 * time.Hour) // Mengatur token berlaku 24 jam
     claims := &JWTClaims{
         UserID: userID,
         Role:   role,
         StandardClaims: jwt.StandardClaims{
-            ExpiresAt: expirationTime.Unix(),
+            ExpiresAt: expirationTime.Unix(), // Waktu kedaluwarsa
+            IssuedAt:  time.Now().Unix(),     // Waktu diterbitkan
         },
     }
 
-    // Create a new JWT token with the claims and the signing method
+    // Membuat token baru dengan klaim
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-    // Sign the token with the secret key
+    // Tanda tangan token dengan secret key
     return token.SignedString(jwtKey)
 }
+
 
 // ValidateJWT validates a JWT token and returns the claims
 func ValidateJWT(tokenStr string) (*JWTClaims, error) {
     claims := &JWTClaims{}
-    
-    // Parse the token and extract the claims
+
+    // Periksa apakah token ada di blacklist
+    if IsTokenBlacklisted(tokenStr) {
+        return nil, jwt.ErrSignatureInvalid // Token sudah logout
+    }
+
+    // Parse token dan klaimnya
     token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
         return jwtKey, nil
     })
-    
-    if err != nil || !token.Valid {
-        return nil, err // Return nil if invalid token
+
+    if err != nil {
+        // Token tidak valid
+        if err == jwt.ErrSignatureInvalid {
+            return nil, err
+        }
+        return nil, jwt.NewValidationError("Invalid token format", jwt.ValidationErrorMalformed)
     }
 
+    if !token.Valid {
+        return nil, jwt.NewValidationError("Invalid token", jwt.ValidationErrorSignatureInvalid)
+    }
+
+    // Kembalikan klaim jika valid
     return claims, nil
 }
+
 
 var blacklist = struct {
 	sync.RWMutex
@@ -57,18 +74,30 @@ var blacklist = struct {
 
 // AddToBlacklist menambahkan token ke daftar blacklist
 func AddToBlacklist(token string, expiry time.Time) {
-	blacklist.Lock()
-	defer blacklist.Unlock()
-	blacklist.tokens[token] = expiry
+    blacklist.Lock()
+    defer blacklist.Unlock()
+    blacklist.tokens[token] = expiry
+
+    // Membersihkan token kedaluwarsa dari blacklist
+    for t, exp := range blacklist.tokens {
+        if time.Now().After(exp) {
+            delete(blacklist.tokens, t) // Hapus token yang sudah expired
+        }
+    }
 }
 
-// IsTokenBlacklisted mengecek apakah token ada dalam blacklist
 func IsTokenBlacklisted(token string) bool {
-	blacklist.RLock()
-	defer blacklist.RUnlock()
-	expiry, exists := blacklist.tokens[token]
-	if !exists {
-		return false
-	}
-	return time.Now().Before(expiry)
+    blacklist.RLock()
+    defer blacklist.RUnlock()
+    expiry, exists := blacklist.tokens[token]
+    if !exists {
+        return false
+    }
+
+    // Jika token sudah expired, hapus dari blacklist
+    if time.Now().After(expiry) {
+        delete(blacklist.tokens, token) // Hapus saat dicek
+        return false
+    }
+    return true
 }

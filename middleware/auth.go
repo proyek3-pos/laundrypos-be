@@ -80,23 +80,50 @@ func RoleMiddleware(role string, next http.Handler) http.HandlerFunc {
 
 
 func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
-		if len(token) > 7 && token[:7] == "Bearer " {
-			token = token[7:]
-		}
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Ambil token dari header Authorization
+        token := r.Header.Get("Authorization")
 
-		if token == "" || utils.IsTokenBlacklisted(token) {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+        if len(token) > 7 && token[:7] == "Bearer " {
+            // Token adalah Bearer token, ambil bagian setelah 'Bearer '
+            token = token[7:]
 
-        _, err := utils.ValidateJWT(token)
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
+            // Sekarang token tidak termasuk awalan 'Bearer ', verifikasi token
+            _, err := utils.ValidateJWT(token)
+            if err != nil {
+                http.Error(w, "Unauthorized", http.StatusUnauthorized)
+                return
+            }
+            // Lanjutkan ke handler berikutnya jika token valid
+            next.ServeHTTP(w, r)
+        } else {
+            http.Error(w, "Unauthorized: Token format salah", http.StatusUnauthorized)
+        }
+    })
 }
+
+func RoleAuthorization(requiredRole string) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        token := r.Header.Get("Authorization")
+        if token == "" {
+            http.Error(w, "Authorization token required", http.StatusUnauthorized)
+            return
+        }
+
+        claims, err := utils.ValidateJWT(token)
+        if err != nil {
+            http.Error(w, "Invalid token", http.StatusUnauthorized)
+            return
+        }
+
+        // Cek apakah role cocok
+        if claims.Role != requiredRole {
+            http.Error(w, "Access denied", http.StatusForbidden)
+            return
+        }
+
+        // Lanjut ke handler berikutnya
+        http.DefaultServeMux.ServeHTTP(w, r)
+    }
+}
+

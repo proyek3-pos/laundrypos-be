@@ -13,13 +13,15 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Fungsi untuk registrasi pengguna baru
 func Register(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
+
+	// Tetapkan role default menjadi "staff"
+	user.Role = "staff"
 
 	// Cek apakah username sudah digunakan
 	var existingUser models.User
@@ -51,6 +53,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
 }
 
+
 // Fungsi untuk login
 // Fungsi untuk login
 func Login(w http.ResponseWriter, r *http.Request) {
@@ -78,17 +81,20 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate token JWT jika login berhasil
-	// Convert user.ID (UUID) to string using String() method
-	token, err := utils.GenerateJWT(user.Username, user.ID.String()) // Use user.ID.String() to convert UUID to string
-
+	// Generate token JWT
+	token, err := utils.GenerateJWT(user.Username, user.ID.String(), user.Role)
 	if err != nil {
 		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	// Kirim token dan role ke frontend
+	json.NewEncoder(w).Encode(map[string]string{
+		"token": token,
+		"role":  user.Role, // Tambahkan role di respons
+	})
 }
+
 
 func Logout(w http.ResponseWriter, r *http.Request) {
 	// Ambil token dari header Authorization
