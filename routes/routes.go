@@ -2,6 +2,7 @@ package routes
 
 import (
 	"laundry-pos/controllers"
+	"laundry-pos/middleware"
 	"net/http"
 )
 
@@ -35,10 +36,9 @@ func InitRoutes() *http.ServeMux {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	
 
 	// Rute untuk customer
-	router.Handle("/customers", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    router.Handle("/customers", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			controllers.AddCustomer(w, r) // Membuat customer baru
@@ -47,9 +47,9 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})))
 
-	router.Handle("/customer-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    router.Handle("/customer-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			controllers.GetCustomerByID(w, r) // Mengambil data customer berdasarkan ID
@@ -60,20 +60,11 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})))
 
-	// // Rute untuk mencari atau membuat customer baru berdasarkan nama dan nomor telepon
-	// router.Handle("/findcustomer", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	// 	switch r.Method {
-	// 	case http.MethodPost:
-	// 		controllers.FindOrCreateCustomer(w, r) // Memanggil fungsi FindOrCreateCustomer
-	// 	default:
-	// 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-	// 	}
-	// }))
 
 	// Rute untuk Service
-	router.Handle("/services", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    router.Handle("/services", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			controllers.CreateService(w, r) // Tambah layanan baru
@@ -82,9 +73,9 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})))
 
-	router.Handle("/service-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    router.Handle("/service-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			controllers.GetServiceByID(w, r) // Ambil layanan berdasarkan ID
@@ -95,10 +86,10 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})))
 
 	// Rute untuk Transaksi
-	router.Handle("/transactions", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    router.Handle("/transactions", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			controllers.CreateTransaction(w, r) // Buat transaksi baru
@@ -107,9 +98,9 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})))
 
-	router.Handle("/transaction-id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    router.Handle("/transaction-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			controllers.GetTransactionByID(w, r) // Ambil transaksi berdasarkan ID
@@ -120,13 +111,23 @@ func InitRoutes() *http.ServeMux {
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})))
 
 	// Rute untuk membuat pembayaran menggunakan Midtrans
 	router.HandleFunc("/create-payment", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			controllers.CreatePayment(w, r) // Memanggil fungsi CreatePayment untuk membuat pembayaran
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Tambahkan handler untuk menerima webhook dari Midtrans
+	router.HandleFunc("/webhook/midtrans", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			controllers.WebhookHandler(w, r) // Memanggil fungsi WebhookHandler untuk menangani notifikasi webhook
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}

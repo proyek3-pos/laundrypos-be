@@ -21,16 +21,6 @@ type Customer struct {
 	PhoneNumber string             `json:"phoneNumber" bson:"phoneNumber"` // Nomor telepon
 }
 
-// Model untuk Report (Laporan transaksi)
-type Report struct {
-	ID                primitive.ObjectID `json:"id" bson:"_id,omitempty"` // ID menggunakan ObjectID untuk MongoDB
-	ReportDate        time.Time          `json:"reportDate" bson:"reportDate"`
-	TotalTransactions int                `json:"totalTransactions" bson:"totalTransactions"`
-	TotalIncome       float64            `json:"totalIncome" bson:"totalIncome"`
-	TotalExpenses     float64            `json:"totalExpenses" bson:"totalExpenses"`
-	NetProfit         float64            `json:"netProfit" bson:"netProfit"`
-}
-
 // Model untuk Inventory (Stok barang)
 type Service struct {
 	ID          primitive.ObjectID `json:"id" bson:"_id,omitempty"`

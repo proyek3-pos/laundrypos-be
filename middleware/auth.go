@@ -21,6 +21,9 @@ func EnableCORS(next http.Handler) http.Handler {
         if allowedOrigins[origin] {
             w.Header().Set("Access-Control-Allow-Origin", origin)
             w.Header().Set("Access-Control-Allow-Credentials", "true") // Mengizinkan kredensial
+        } else {
+            // If the origin is not allowed, set CORS headers to prevent access
+            w.Header().Set("Access-Control-Allow-Origin", "null")
         }
 
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -39,12 +42,13 @@ func EnableCORS(next http.Handler) http.Handler {
 
 
 
+
 func RoleMiddleware(requiredRole string, next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         // Ambil token dari header Authorization
         token := r.Header.Get("Authorization")
         if len(token) < 7 || token[:7] != "Bearer " {
-            http.Error(w, "Unauthorized: Token format salah", http.StatusUnauthorized)
+            http.Error(w, "Unauthorized: Token Format Salah", http.StatusUnauthorized)
             return
         }
 
@@ -114,7 +118,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
         // Ambil token dari header Authorization
         token := r.Header.Get("Authorization")
         if len(token) < 7 || token[:7] != "Bearer " {
-            http.Error(w, "Unauthorized: Token format salah", http.StatusUnauthorized)
+            http.Error(w, "Unauthorized: Token Tidak Ditemukan", http.StatusUnauthorized)
             return
         }
 

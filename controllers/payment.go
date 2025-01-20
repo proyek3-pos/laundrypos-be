@@ -57,7 +57,7 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 	snapReq := &midtrans.SnapReq{
 		TransactionDetails: midtrans.TransactionDetails{
 			OrderID:  paymentReq.OrderID,
-			GrossAmt: int64(paymentReq.GrossAmount), // Kalikan dengan 100 hanya di sini untuk cent
+			GrossAmt: int64(paymentReq.GrossAmount), 
 		},
 	}
 
@@ -105,4 +105,40 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(response)
+}
+
+// WebhookHandler menangani notifikasi dari Midtrans
+func WebhookHandler(w http.ResponseWriter, r *http.Request) {
+    var notificationPayload map[string]interface{}
+    if err := json.NewDecoder(r.Body).Decode(&notificationPayload); err != nil {
+        http.Error(w, "Invalid payload", http.StatusBadRequest)
+        return
+    }
+
+    // Ambil Order ID dari payload
+    orderID, ok := notificationPayload["order_id"].(string)
+    if !ok {
+        http.Error(w, "Order ID tidak valid", http.StatusBadRequest)
+        return
+    }
+
+    // Ambil status pembayaran dari payload
+    transactionStatus, ok := notificationPayload["transaction_status"].(string)
+    if !ok {
+        http.Error(w, "Status transaksi tidak valid", http.StatusBadRequest)
+        return
+    }
+
+    ctx := context.Background()
+
+    // Update status pembayaran di database
+    update := bson.M{"$set": bson.M{"status": transactionStatus}}
+    _, err := config.PaymentCollection.UpdateOne(ctx, bson.M{"order_id": orderID}, update)
+    if err != nil {
+        http.Error(w, "Gagal memperbarui status pembayaran", http.StatusInternalServerError)
+        return
+    }
+
+    // Response ke Midtrans bahwa notifikasi diterima
+    w.WriteHeader(http.StatusOK)
 }
