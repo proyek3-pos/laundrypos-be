@@ -89,6 +89,10 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Kirim token dan role ke frontend
+	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Content-Type", "application/json")
+
 	json.NewEncoder(w).Encode(map[string]string{
 		"token": token,
 		"role":  user.Role, // Tambahkan role di respons
