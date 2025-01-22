@@ -123,6 +123,26 @@ func InitRoutes() *http.ServeMux {
 		}
 	})
 
+	// Rute untuk pembayaran
+	router.Handle("/payments", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			controllers.GetAllPayments(w, r) // Mengambil semua pembayaran
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
+	router.Handle("/payment-detail", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			controllers.GetPaymentByOrderID(w, r) // Mengambil pembayaran berdasarkan OrderID
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
+
 	// Tambahkan handler untuk menerima webhook dari Midtrans
 	router.HandleFunc("/webhook/midtrans", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

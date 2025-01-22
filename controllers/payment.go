@@ -142,3 +142,55 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
     // Response ke Midtrans bahwa notifikasi diterima
     w.WriteHeader(http.StatusOK)
 }
+
+// GetPaymentByOrderID mendapatkan data pembayaran berdasarkan OrderID
+func GetPaymentByOrderID(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+
+	// Ambil OrderID dari query parameter
+	orderID := r.URL.Query().Get("order_id")
+	if orderID == "" {
+		http.Error(w, "Order ID tidak disediakan", http.StatusBadRequest)
+		return
+	}
+
+	// Cari pembayaran di database berdasarkan OrderID
+	var payment models.Payment
+	err := config.PaymentCollection.FindOne(ctx, bson.M{"order_id": orderID}).Decode(&payment)
+	if err != nil {
+		http.Error(w, "Pembayaran tidak ditemukan", http.StatusNotFound)
+		return
+	}
+
+	// Kembalikan data pembayaran dalam bentuk JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payment)
+}
+
+// GetAllPayments mendapatkan semua data pembayaran
+func GetAllPayments(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+
+	// Cari semua pembayaran di database
+	cursor, err := config.PaymentCollection.Find(ctx, bson.M{})
+	if err != nil {
+		http.Error(w, "Gagal mengambil data pembayaran", http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	// Parse data pembayaran ke dalam slice
+	var payments []models.Payment
+	for cursor.Next(ctx) {
+		var payment models.Payment
+		if err := cursor.Decode(&payment); err != nil {
+			http.Error(w, "Gagal memproses data pembayaran", http.StatusInternalServerError)
+			return
+		}
+		payments = append(payments, payment)
+	}
+
+	// Kembalikan semua data pembayaran dalam bentuk JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payments)
+}
