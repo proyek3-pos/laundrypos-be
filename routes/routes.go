@@ -123,15 +123,14 @@ func InitRoutes() *http.ServeMux {
 		}
 	})
 
-	// Rute untuk pembayaran
-	router.Handle("/payments", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router.HandleFunc("/payments", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			controllers.GetAllPayments(w, r) // Mengambil semua pembayaran
+			controllers.GetAllPayments(w, r) // Memanggil fungsi CreatePayment untuk membuat pembayaran
 		default:
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-	})))
+	})
 
 	router.Handle("/payment-detail", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
