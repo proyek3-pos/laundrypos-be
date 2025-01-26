@@ -55,45 +55,45 @@ func RoleMiddleware(requiredRole string, next http.Handler) http.Handler {
     })
 }
 
-// func AuthMiddleware(next http.Handler) http.Handler {
-//     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-//         token := r.Header.Get("Authorization")
-//         if token == "" {
-//             http.Error(w, "Authorization header missing", http.StatusUnauthorized)
-//             return
-//         }
-
-//         // Token harus diawali dengan "Bearer "
-//         if len(token) < 7 || token[:7] != "Bearer " {
-//             http.Error(w, "Invalid token format", http.StatusUnauthorized)
-//             return
-//         }
-
-//         // Ambil token setelah "Bearer "
-//         token = token[7:]
-
-//         // Verifikasi token
-//         _, err := utils.ValidateJWT(token)
-//         if err != nil {
-//             http.Error(w, "Invalid token", http.StatusUnauthorized)
-//             return
-//         }
-
-//         next.ServeHTTP(w, r)
-//     })
-// }
-
-
 func AuthMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Ambil token dari header Authorization
         token := r.Header.Get("Authorization")
-        if len(token) < 7 || token[:7] != "Bearer " {
-            http.Error(w, "Unauthorized: Token Tidak Ditemukan", http.StatusUnauthorized)
+        if token == "" {
+            http.Error(w, "Authorization header missing", http.StatusUnauthorized)
             return
         }
+
+        // Token harus diawali dengan "Bearer "
+        if len(token) < 7 || token[:7] != "Bearer " {
+            http.Error(w, "Invalid token format", http.StatusUnauthorized)
+            return
+        }
+
+        // Ambil token setelah "Bearer "
+        token = token[7:]
+
+        // Verifikasi token
+        _, err := utils.ValidateJWT(token)
+        if err != nil {
+            http.Error(w, "Invalid token", http.StatusUnauthorized)
+            return
+        }
+
+        next.ServeHTTP(w, r)
     })
 }
+
+
+// func AuthMiddleware(next http.Handler) http.Handler {
+//     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+//         // Ambil token dari header Authorization
+//         token := r.Header.Get("Authorization")
+//         if len(token) < 7 || token[:7] != "Bearer " {
+//             http.Error(w, "Unauthorized: Token Tidak Ditemukan", http.StatusUnauthorized)
+//             return
+//         }
+//     })
+// }
 
 func RoleAuthorization(requiredRole string) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
