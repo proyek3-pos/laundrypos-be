@@ -23,6 +23,32 @@ import (
 // errAlreadyPaid menandai race dua kasir bayar bersamaan (bukan error sistem).
 var errAlreadyPaid = errors.New("pesanan sudah dibayar")
 
+// ensureSnapToken mengembalikan token Snap; payment lama sebelum fitur popup
+// tidak menyimpan token, jadi minta ulang ke Midtrans dengan order_id sama
+// (Snap mengembalikan token yang sama untuk order_id yang masih aktif).
+func ensureSnapToken(p *models.Payment) error {
+	if p.SnapToken != "" {
+		return nil
+	}
+	snapGateway := midtrans.SnapGateway{Client: *services.MidtransClient()}
+	snapResp, err := snapGateway.GetToken(&midtrans.SnapReq{
+		TransactionDetails: midtrans.TransactionDetails{
+			OrderID:  p.OrderID,
+			GrossAmt: int64(p.GrossAmount),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	p.SnapToken = snapResp.Token
+	p.SnapURL = snapResp.RedirectURL
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _ = config.PaymentCollection.UpdateOne(ctx, bson.M{"_id": p.ID},
+		bson.M{"$set": bson.M{"snap_token": p.SnapToken, "snap_url": p.SnapURL}})
+	return nil
+}
+
 // withTransaction menjalankan operasi multi-dokumen secara atomik.
 // Butuh replica set; MongoDB Atlas memang replica set.
 func withTransaction(ctx context.Context, fn func(mongo.SessionContext) error) error {
@@ -72,9 +98,14 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 		"payment_method": "midtrans",
 	}).Decode(&existing)
 	if err == nil {
+		if err := ensureSnapToken(&existing); err != nil {
+			utils.Err(w, http.StatusBadGateway, "Gagal membuat pembayaran Midtrans")
+			return
+		}
 		utils.JSON(w, http.StatusOK, map[string]string{
-			"snap_url": existing.SnapURL,
-			"order_id": existing.OrderID,
+			"snap_url":   existing.SnapURL,
+			"snap_token": existing.SnapToken,
+			"order_id":   existing.OrderID,
 		})
 		return
 	}
@@ -105,6 +136,7 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payment.SnapURL = snapResp.RedirectURL
+	payment.SnapToken = snapResp.Token
 
 	// Partial unique index menahan dua Snap pending untuk transaksi yang sama;
 	// yang kalah balik memakai tagihan milik pemenang.
@@ -116,9 +148,14 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 				"status":         "pending",
 				"payment_method": "midtrans",
 			}).Decode(&winner); err == nil {
+				if err := ensureSnapToken(&winner); err != nil {
+					utils.Err(w, http.StatusBadGateway, "Gagal membuat pembayaran Midtrans")
+					return
+				}
 				utils.JSON(w, http.StatusOK, map[string]string{
-					"snap_url": winner.SnapURL,
-					"order_id": winner.OrderID,
+					"snap_url":   winner.SnapURL,
+					"snap_token": winner.SnapToken,
+					"order_id":   winner.OrderID,
 				})
 				return
 			}
@@ -128,8 +165,9 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.JSON(w, http.StatusCreated, map[string]string{
-		"snap_url": payment.SnapURL,
-		"order_id": payment.OrderID,
+		"snap_url":   payment.SnapURL,
+		"snap_token": payment.SnapToken,
+		"order_id":   payment.OrderID,
 	})
 }
 

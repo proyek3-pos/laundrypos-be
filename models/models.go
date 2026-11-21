@@ -65,6 +65,7 @@ type Payment struct {
 	AmountPaid    float64            `json:"amount_paid,omitempty" bson:"amount_paid,omitempty"` // hanya cash
 	Change        float64            `json:"change,omitempty" bson:"change,omitempty"`           // kembalian cash
 	SnapURL       string             `json:"snap_url,omitempty" bson:"snap_url,omitempty"`
+	SnapToken     string             `json:"snap_token,omitempty" bson:"snap_token,omitempty"` // untuk Snap Popup
 	Status        string             `json:"status" bson:"status"` // pending | paid | failed
 	PaymentMethod string             `json:"payment_method,omitempty" bson:"payment_method,omitempty"`
 	MidtransRaw   string             `json:"midtrans_raw,omitempty" bson:"midtrans_raw,omitempty"` // status mentah terakhir dari Midtrans
