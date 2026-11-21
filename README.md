@@ -1,0 +1,46 @@
+# laundrypos-be
+
+Backend POS laundry: Go 1.22 + MongoDB (Atlas), di-deploy ke Vercel sebagai serverless function.
+
+## Menjalankan lokal
+
+1. Salin `.env.example` jadi `.env`, lalu isi:
+   - `MONGO_URI`: string koneksi MongoDB Atlas
+   - `JWT_SECRET_KEY`: secret acak minimal 32 karakter (`openssl rand -hex 32`)
+   - `MIDTRANS_SERVER_KEY` / `MIDTRANS_CLIENT_KEY`: dari dashboard Midtrans
+   - `CORS_ALLOWED_ORIGINS`: daftar origin frontend, dipisah koma
+2. Jalankan server: `go run ./api` (port 8082).
+3. Buat user admin: `ADMIN_USERNAME=admin ADMIN_PASSWORD=xxxxxxxx go run ./cmd/seed`
+4. Data lama (opsional, sekali saja): `go run ./cmd/migrate` (status `Pending` menjadi `pending`, `paymentStatus` default `unpaid`).
+
+## Test
+
+```bash
+go test ./...                                    # unit test murni
+TEST_MONGO_URI=mongodb+srv://... go test ./...   # + test integrasi (database laundry-pos-test)
+go vet ./...
+```
+
+## Ringkasan API
+
+Semua respons berbentuk `{success, message?, data?, meta?}`. Autentikasi JWT via header `Authorization: Bearer <token>`.
+
+| Method & path | Akses | Fungsi |
+|---|---|---|
+| POST /register, /login, /logout | publik / token | registrasi (role staff), login, mencabut token |
+| GET /health | publik | cek server |
+| GET/POST /customers, GET/PUT/DELETE /customers/{id} | token | CRUD pelanggan (list paginated, filter `q`) |
+| GET /services, GET /services/{id} | token | daftar layanan |
+| POST/PUT/DELETE /services... | admin | kelola layanan |
+| GET/POST /transactions, GET/PUT /transactions/{id} | token | transaksi; edit item hanya saat `pending` |
+| PATCH /transactions/{id}/status | token | siklus status: pending → diproses → selesai → diambil (+ batal) |
+| DELETE /transactions/{id} | admin | hapus transaksi |
+| POST /payments/cash | token | bayar tunai + kembalian, anti dobel bayar |
+| POST /payments/midtrans | token | Snap Midtrans (pakai ulang tagihan pending) |
+| GET /payments, GET /payments/{orderID} | token | riwayat pembayaran |
+| POST /webhook/midtrans | publik + signature SHA512 | update status pembayaran & transaksi |
+| GET /reports/summary | admin | pendapatan hari/bulan, pesanan hari ini, belum lunas |
+
+## Deploy (Vercel)
+
+`vercel.json` mem-build `api/main.go`. Set semua env di dashboard Vercel (bukan di file). **Penting:** kredensial Atlas dan kunci Midtrans lama pernah ter-commit ke git history, ganti/rotasi keduanya sebelum produksi.
