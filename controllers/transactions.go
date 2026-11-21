@@ -32,6 +32,7 @@ func recomputeItems(ctx context.Context, in []models.TransactionItem) ([]models.
 			return nil, 0, err
 		}
 		item.ID = primitive.NewObjectID()
+		item.Service = service
 		item.UnitPrice = service.UnitPrice
 		item.TotalPrice = item.Quantity * service.UnitPrice
 		items[i] = item
