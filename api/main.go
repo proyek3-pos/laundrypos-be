@@ -1,39 +1,35 @@
 package main
 
 import (
-    "fmt"
-    "laundry-pos/config"
-    "laundry-pos/middleware"
-    "laundry-pos/routes"
-    "net/http"
-    "log"
+	"laundry-pos/config"
+	"laundry-pos/middleware"
+	"laundry-pos/routes"
+	"log"
+	"net/http"
+
+	"github.com/joho/godotenv"
 )
 
 func init() {
-    // Menginisialisasi MongoDB saat aplikasi dijalankan
-    if err := config.InitMongoDB(); err != nil {
-        fmt.Printf("Failed to initialize MongoDB: %v\n", err)
-        panic(err)
-    }
-    fmt.Println("MongoDB initialized successfully!")
+	// .env hanya ada saat lokal; di Vercel env diset lewat dashboard.
+	_ = godotenv.Load()
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	if err := config.ConnectMongo(cfg); err != nil {
+		log.Fatalf("mongo: %v", err)
+	}
 }
 
-// Handler adalah fungsi yang akan dipanggil oleh Vercel
+// Handler dipanggil Vercel untuk setiap request.
 func Handler(w http.ResponseWriter, r *http.Request) {
-    // Inisialisasi router
-    router := routes.InitRoutes()
-
-    // Menambahkan middleware CORS
-    routerWithCORS := middleware.EnableCORS(router)
-
-    // Jalankan request melalui router
-    routerWithCORS.ServeHTTP(w, r)
+	middleware.EnableCORS(routes.InitRoutes()).ServeHTTP(w, r)
 }
 
-// Fungsi main untuk menjalankan server di lokal
 func main() {
-    http.HandleFunc("/", Handler)
-    port := "8082"
-    fmt.Printf("Server berjalan di http://localhost:%s\n", port)
-    log.Fatal(http.ListenAndServe(":"+port, nil))
+	http.Handle("/", http.HandlerFunc(Handler))
+	log.Println("Server berjalan di http://localhost:8082")
+	log.Fatal(http.ListenAndServe(":8082", nil))
 }
