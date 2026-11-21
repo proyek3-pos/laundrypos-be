@@ -65,10 +65,13 @@ func EnsureIndexes(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Nomor nota harus unik.
+	// Nomor nota harus unik, tapi hanya untuk dokumen yang punya nota;
+	// transaksi lama sebelum fitur nota tidak membawa field ini.
 	_, err = TransactionCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.M{"invoiceNumber": 1},
-		Options: options.Index().SetUnique(true),
+		Keys: bson.M{"invoiceNumber": 1},
+		Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{
+			"invoiceNumber": bson.M{"$type": "string", "$gt": ""},
+		}),
 	})
 	if err != nil {
 		return err

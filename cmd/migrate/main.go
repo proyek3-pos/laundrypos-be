@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"laundry-pos/config"
+	"laundry-pos/services"
 	"log"
 	"time"
 
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Migrate menyetel data lama ke skema baru: status "Pending" -> "pending"
@@ -48,4 +50,29 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("paymentStatus default: %d dokumen\n", res.ModifiedCount)
+
+	// Isi nomor nota untuk transaksi lama yang belum punya, agar bisa difilter.
+	cur, err := config.TransactionCollection.Find(ctx, bson.M{"invoiceNumber": bson.M{"$in": bson.A{nil, ""}}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cur.Close(ctx)
+	var retro int
+	for cur.Next(ctx) {
+		var doc struct {
+			ID              primitive.ObjectID `bson:"_id"`
+			TransactionDate time.Time          `bson:"transactionDate"`
+		}
+		if err := cur.Decode(&doc); err != nil {
+			continue
+		}
+		_, err := config.TransactionCollection.UpdateOne(ctx,
+			bson.M{"_id": doc.ID},
+			bson.M{"$set": bson.M{"invoiceNumber": services.NewInvoiceNumber(doc.TransactionDate)}},
+		)
+		if err == nil {
+			retro++
+		}
+	}
+	fmt.Printf("nomor nota retroaktif: %d dokumen\n", retro)
 }

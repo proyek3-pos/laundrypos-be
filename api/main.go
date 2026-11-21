@@ -7,32 +7,43 @@ import (
 	"laundry-pos/routes"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
 )
 
-var router http.Handler
+// Inisialisasi sengaja lazy: runtime Vercel baru meng-inject env project
+// (VERCEL_ENV_FILE) tepat sebelum Handler dipanggil, bukan saat init package.
+var (
+	setupOnce sync.Once
+	setupErr  error
+	router    http.Handler
+)
 
-func init() {
+func setup() {
 	// .env hanya ada saat lokal (vercel dev); di Vercel env diset lewat dashboard.
 	_ = godotenv.Load()
 
 	if err := config.UseLocalTZ(); err != nil {
-		log.Fatalf("timezone: %v", err)
+		setupErr = err
+		return
 	}
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		setupErr = err
+		return
 	}
 	if err := config.ConnectMongo(cfg); err != nil {
-		log.Fatalf("mongo: %v", err)
+		setupErr = err
+		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := config.EnsureIndexes(ctx); err != nil {
-		log.Fatalf("indexes: %v", err)
+		setupErr = err
+		return
 	}
 
 	router = middleware.EnableCORS(middleware.Logger(middleware.Recover(middleware.LimitBody(routes.InitRoutes()))))
@@ -40,5 +51,11 @@ func init() {
 
 // Handler dipanggil Vercel untuk setiap request.
 func Handler(w http.ResponseWriter, r *http.Request) {
+	setupOnce.Do(setup)
+	if setupErr != nil {
+		log.Printf("setup: %v", setupErr)
+		http.Error(w, "Gagal menyiapkan server", http.StatusInternalServerError)
+		return
+	}
 	router.ServeHTTP(w, r)
 }
