@@ -7,150 +7,44 @@ import (
 )
 
 func InitRoutes() *http.ServeMux {
-	router := http.NewServeMux()
+	mux := http.NewServeMux()
+	auth := middleware.AuthMiddleware
+	admin := func(next http.Handler) http.Handler {
+		return auth(middleware.RequireRole("admin", next))
+	}
+	h := func(next http.HandlerFunc) http.Handler {
+		return auth(next)
+	}
 
-	// Rute Auth
-	router.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.Register(w, r) // Untuk registrasi staff
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.HandleFunc("POST /register", controllers.Register)
+	mux.HandleFunc("POST /login", controllers.Login)
+	mux.HandleFunc("GET /health", controllers.Health)
+	mux.Handle("POST /logout", auth(http.HandlerFunc(controllers.Logout)))
 
-	router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.Login(w, r)
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.Handle("POST /customers", h(controllers.AddCustomer))
+	mux.Handle("GET /customers", h(controllers.GetAllCustomers))
+	mux.Handle("GET /customers/{id}", h(controllers.GetCustomerByID))
+	mux.Handle("PUT /customers/{id}", h(controllers.UpdateCustomer))
+	mux.Handle("DELETE /customers/{id}", h(controllers.DeleteCustomer))
 
-	router.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.Logout(w, r) // Memanggil fungsi logout
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.Handle("GET /services", h(controllers.GetAllServices))
+	mux.Handle("POST /services", admin(http.HandlerFunc(controllers.CreateService)))
+	mux.Handle("GET /services/{id}", h(controllers.GetServiceByID))
+	mux.Handle("PUT /services/{id}", admin(http.HandlerFunc(controllers.UpdateService)))
+	mux.Handle("DELETE /services/{id}", admin(http.HandlerFunc(controllers.DeleteService)))
 
-	// Rute untuk customer
-    router.Handle("/customers", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.AddCustomer(w, r) // Membuat customer baru
-		case http.MethodGet:
-			controllers.GetAllCustomers(w, r) // Mengambil semua data customer
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})))
+	mux.Handle("POST /transactions", h(controllers.CreateTransaction))
+	mux.Handle("GET /transactions", h(controllers.GetTransactions))
+	mux.Handle("GET /transactions/{id}", h(controllers.GetTransactionByID))
+	mux.Handle("PUT /transactions/{id}", h(controllers.UpdateTransaction))
+	mux.Handle("DELETE /transactions/{id}", admin(http.HandlerFunc(controllers.DeleteTransaction)))
 
-    router.Handle("/customer-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			controllers.GetCustomerByID(w, r) // Mengambil data customer berdasarkan ID
-		case http.MethodPut:
-			controllers.UpdateCustomer(w, r) // Mengupdate data customer berdasarkan ID
-		case http.MethodDelete:
-			controllers.DeleteCustomer(w, r) // Menghapus data customer berdasarkan ID
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})))
+	mux.Handle("POST /payments/midtrans", h(controllers.CreatePayment))
+	mux.Handle("GET /payments", h(controllers.GetAllPayments))
+	mux.Handle("GET /payments/{orderID}", h(controllers.GetPaymentByOrderID))
 
+	// Webhook Midtrans memang harus publik, tapi diverifikasi signature.
+	mux.HandleFunc("POST /webhook/midtrans", controllers.WebhookHandler)
 
-	// Rute untuk Service
-    router.Handle("/services", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.CreateService(w, r) // Tambah layanan baru
-		case http.MethodGet:
-			controllers.GetAllServices(w, r) // Ambil semua data layanan
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})))
-
-    router.Handle("/service-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			controllers.GetServiceByID(w, r) // Ambil layanan berdasarkan ID
-		case http.MethodPut:
-			controllers.UpdateService(w, r) // Update layanan
-		case http.MethodDelete:
-			controllers.DeleteService(w, r) // Hapus layanan
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})))
-
-	// Rute untuk Transaksi
-    router.Handle("/transactions", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.CreateTransaction(w, r) // Buat transaksi baru
-		case http.MethodGet:
-			controllers.GetTransactions(w, r) // Ambil semua transaksi
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})))
-
-    router.Handle("/transaction-id", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			controllers.GetTransactionByID(w, r) // Ambil transaksi berdasarkan ID
-		case http.MethodPut:
-			controllers.UpdateTransaction(w, r) // Update layanan
-		case http.MethodDelete:
-			controllers.DeleteTransaction(w, r) // Hapus layanan
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})))
-
-	// Rute untuk membuat pembayaran menggunakan Midtrans
-	router.HandleFunc("/create-payment", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.CreatePayment(w, r) // Memanggil fungsi CreatePayment untuk membuat pembayaran
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	router.HandleFunc("/payments", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			controllers.GetAllPayments(w, r) // Memanggil fungsi CreatePayment untuk membuat pembayaran
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	router.Handle("/payment-detail", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			controllers.GetPaymentByOrderID(w, r) // Mengambil pembayaran berdasarkan OrderID
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})))
-
-
-	// Tambahkan handler untuk menerima webhook dari Midtrans
-	router.HandleFunc("/webhook/midtrans", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			controllers.WebhookHandler(w, r) // Memanggil fungsi WebhookHandler untuk menangani notifikasi webhook
-		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	return router
+	return mux
 }

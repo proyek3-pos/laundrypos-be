@@ -71,7 +71,7 @@ func GetAllCustomers(w http.ResponseWriter, r *http.Request) {
 // Fungsi untuk mendapatkan customer berdasarkan ID
 func GetCustomerByID(w http.ResponseWriter, r *http.Request) {
 	// Ambil ID dari URL parameter
-	customerID := r.URL.Query().Get("id")
+	customerID := r.PathValue("id")
 	if customerID == "" {
 		http.Error(w, "ID is required", http.StatusBadRequest)
 		return
@@ -99,7 +99,7 @@ func GetCustomerByID(w http.ResponseWriter, r *http.Request) {
 // Fungsi untuk memperbarui data customer
 func UpdateCustomer(w http.ResponseWriter, r *http.Request) {
 	// Ambil ID dari URL parameter
-	customerID := r.URL.Query().Get("id")
+	customerID := r.PathValue("id")
 	if customerID == "" {
 		http.Error(w, "ID is required", http.StatusBadRequest)
 		return
@@ -144,7 +144,7 @@ func UpdateCustomer(w http.ResponseWriter, r *http.Request) {
 // Fungsi untuk menghapus customer berdasarkan ID
 func DeleteCustomer(w http.ResponseWriter, r *http.Request) {
 	// Ambil ID dari URL parameter
-	customerID := r.URL.Query().Get("id")
+	customerID := r.PathValue("id")
 	if customerID == "" {
 		http.Error(w, "ID is required", http.StatusBadRequest)
 		return

@@ -10,119 +10,123 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func Register(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Input tidak valid", http.StatusBadRequest)
+		return
+	}
+	if err := utils.ValidateUsername(user.Username); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := utils.ValidatePassword(user.Password); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Tetapkan role default menjadi "staff"
+	hashed, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "Gagal mengenkripsi password", http.StatusInternalServerError)
+		return
+	}
+	user.Password = string(hashed)
 	user.Role = "staff"
 
-	// Cek apakah username sudah digunakan
-	var existingUser models.User
-	err := config.UserCollection.FindOne(context.TODO(), bson.M{"username": user.Username}).Decode(&existingUser)
-	if err == nil {
-		http.Error(w, "Username already exists", http.StatusBadRequest)
-		return
-	}
-
-	// Hash password sebelum disimpan
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-	if err != nil {
-		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
-		return
-	}
-	user.Password = string(hashedPassword)
-
-	// Simpan data pengguna ke database
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err = config.UserCollection.InsertOne(ctx, user)
-	if err != nil {
-		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+	if _, err := config.UserCollection.InsertOne(ctx, user); err != nil {
+		// Index unik username yang menahan race antar dua register bersamaan.
+		if mongo.IsDuplicateKeyError(err) {
+			http.Error(w, "Username sudah dipakai", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Gagal membuat user", http.StatusInternalServerError)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": "Registrasi berhasil"})
 }
 
-
-// Fungsi untuk login
-// Fungsi untuk login
 func Login(w http.ResponseWriter, r *http.Request) {
 	var creds struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Input tidak valid", http.StatusBadRequest)
 		return
 	}
 
-	// Mencari pengguna berdasarkan username
 	var user models.User
-	err := config.UserCollection.FindOne(context.TODO(), bson.M{"username": creds.Username}).Decode(&user)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := config.UserCollection.FindOne(ctx, bson.M{"username": creds.Username}).Decode(&user)
 	if err != nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		http.Error(w, "Username atau password salah", http.StatusUnauthorized)
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
+		http.Error(w, "Username atau password salah", http.StatusUnauthorized)
 		return
 	}
 
-	// Memverifikasi password
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password))
+	token, err := utils.GenerateJWT(user.ID.Hex(), user.Role, user.Username)
 	if err != nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		http.Error(w, "Gagal membuat token", http.StatusInternalServerError)
 		return
 	}
 
-	// Generate token JWT
-	token, err := utils.GenerateJWT(user.Username, user.ID.String(), user.Role)
-	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-		return
-	}
-
-	// Kirim token dan role ke frontend
-	w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Content-Type", "application/json")
-
 	json.NewEncoder(w).Encode(map[string]string{
-		"token": token,
-		"role":  user.Role, // Tambahkan role di respons
+		"token":    token,
+		"role":     user.Role,
+		"username": user.Username,
 	})
 }
 
-
 func Logout(w http.ResponseWriter, r *http.Request) {
-	// Ambil token dari header Authorization
 	token := r.Header.Get("Authorization")
-	if token == "" {
-		http.Error(w, "Token required", http.StatusBadRequest)
+	if len(token) < 8 || token[:7] != "Bearer " {
+		http.Error(w, "Token tidak valid", http.StatusUnauthorized)
 		return
 	}
-
-	// Hilangkan prefix "Bearer " jika ada
-	if len(token) > 7 && token[:7] == "Bearer " {
-		token = token[7:]
-	}
-
-	// Verifikasi token dan ambil expiry time
-	claims, err := utils.ValidateJWT(token)
+	claims, err := utils.ValidateJWT(token[7:])
 	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		http.Error(w, "Token tidak valid", http.StatusUnauthorized)
+		return
+	}
+	if claims.ExpiresAt == nil {
+		http.Error(w, "Token tidak valid", http.StatusUnauthorized)
 		return
 	}
 
-	// Tambahkan token ke blacklist
-	utils.AddToBlacklist(token, time.Unix(claims.ExpiresAt, 0))
+	// Token dicabut sampai kedaluwarsa; TTL index Mongo yang menghapus dokumennya.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = config.RevokedTokenCollection.InsertOne(ctx, bson.M{
+		"token":     token[7:],
+		"expiresAt": claims.ExpiresAt.Time,
+	})
+	if err != nil {
+		http.Error(w, "Gagal logout", http.StatusInternalServerError)
+		return
+	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Logout berhasil"})
+}
+
+// Health dipakai monitoring dan smoke test.
+func Health(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }

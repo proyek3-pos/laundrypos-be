@@ -8,6 +8,7 @@ import (
 	"laundry-pos/models"
 	"laundry-pos/services"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -115,10 +116,13 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Ambil Order ID dari payload
-    orderID, ok := notificationPayload["order_id"].(string)
-    if !ok {
-        http.Error(w, "Order ID tidak valid", http.StatusBadRequest)
+    orderID, _ := notificationPayload["order_id"].(string)
+    statusCode, _ := notificationPayload["status_code"].(string)
+    grossAmount, _ := notificationPayload["gross_amount"].(string)
+    signature, _ := notificationPayload["signature_key"].(string)
+
+    if !services.VerifyMidtransSignature(orderID, statusCode, grossAmount, os.Getenv("MIDTRANS_SERVER_KEY"), signature) {
+        http.Error(w, "Signature tidak valid", http.StatusForbidden)
         return
     }
 
@@ -147,8 +151,8 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 func GetPaymentByOrderID(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 
-	// Ambil OrderID dari query parameter
-	orderID := r.URL.Query().Get("order_id")
+	// Ambil OrderID dari path parameter
+	orderID := r.PathValue("orderID")
 	if orderID == "" {
 		http.Error(w, "Order ID tidak disediakan", http.StatusBadRequest)
 		return

@@ -102,7 +102,7 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 
 // Fungsi untuk mendapatkan transaksi berdasarkan ID
 func GetTransactionByID(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
+	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
 		return
@@ -219,7 +219,7 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 
 // Fungsi untuk menghapus transaksi
 func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
+	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
 		return

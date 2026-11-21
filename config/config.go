@@ -15,7 +15,7 @@ type Config struct {
 	CORSOrigins       []string
 }
 
-var defaultCORSOrigins = []string{
+var DefaultCORSOrigins = []string{
 	"http://127.0.0.1:5500",
 	"http://localhost:5173",
 	"https://proyek3-pos.github.io/laundrypos-fe",
@@ -28,13 +28,13 @@ func LoadConfig() (Config, error) {
 		JWTSecret:         os.Getenv("JWT_SECRET_KEY"),
 		MidtransServerKey: os.Getenv("MIDTRANS_SERVER_KEY"),
 		MidtransClientKey: os.Getenv("MIDTRANS_CLIENT_KEY"),
-		CORSOrigins:       parseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
+		CORSOrigins:       ParseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
 	}
 	if cfg.DBName == "" {
 		cfg.DBName = "laundry-pos"
 	}
 	if len(cfg.CORSOrigins) == 0 {
-		cfg.CORSOrigins = defaultCORSOrigins
+		cfg.CORSOrigins = DefaultCORSOrigins
 	}
 	if cfg.MongoURI == "" {
 		return cfg, errors.New("env MONGO_URI wajib diisi")
@@ -45,7 +45,7 @@ func LoadConfig() (Config, error) {
 	return cfg, nil
 }
 
-func parseCORSOrigins(s string) []string {
+func ParseCORSOrigins(s string) []string {
 	var out []string
 	for _, o := range strings.Split(s, ",") {
 		if o = strings.TrimSpace(o); o != "" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -37,4 +38,36 @@ func ConnectMongo(cfg Config) error {
 	TransactionCollection = db.Collection("transactions")
 	RevokedTokenCollection = db.Collection("revoked_tokens")
 	return nil
+}
+
+// EnsureIndexes membuat index yang sistem andalkan: username unik (anti race
+// register), order_id unik, dan TTL untuk token yang dicabut.
+func EnsureIndexes(ctx context.Context) error {
+	_, err := UserCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"username": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = PaymentCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"order_id": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = TransactionCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.M{"customerId": 1}},
+		{Keys: bson.M{"status": 1}},
+		{Keys: bson.M{"transactionDate": -1}},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = RevokedTokenCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"expiresAt": 1},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	})
+	return err
 }

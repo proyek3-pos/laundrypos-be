@@ -79,7 +79,7 @@ func GetAllServices(w http.ResponseWriter, r *http.Request) {
 // Dapatkan layanan berdasarkan ID
 func GetServiceByID(w http.ResponseWriter, r *http.Request) {
 	// Ambil ID dari URL parameter
-	serviceID := r.URL.Query().Get("id")
+	serviceID := r.PathValue("id")
 	if serviceID == "" {
 		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
 		return
@@ -108,7 +108,7 @@ func GetServiceByID(w http.ResponseWriter, r *http.Request) {
 // Fungsi untuk memperbarui layanan
 func UpdateService(w http.ResponseWriter, r *http.Request) {
 	// Ambil ID dari URL parameter
-	serviceID := r.URL.Query().Get("id")
+	serviceID := r.PathValue("id")
 	if serviceID == "" {
 		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
 		return
@@ -163,7 +163,7 @@ func UpdateService(w http.ResponseWriter, r *http.Request) {
 // Fungsi untuk menghapus layanan
 func DeleteService(w http.ResponseWriter, r *http.Request) {
 	// Ambil ID dari URL parameter
-	serviceID := r.URL.Query().Get("id")
+	serviceID := r.PathValue("id")
 	if serviceID == "" {
 		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
 		return

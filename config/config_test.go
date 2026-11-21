@@ -40,7 +40,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 }
 
 func TestParseCORSOrigins(t *testing.T) {
-	got := parseCORSOrigins(" http://a:1 , http://b:2 ,,")
+	got := ParseCORSOrigins(" http://a:1 , http://b:2 ,,")
 	want := []string{"http://a:1", "http://b:2"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseCORSOrigins = %v, want %v", got, want)
