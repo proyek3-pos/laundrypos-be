@@ -23,6 +23,7 @@ var DefaultCORSOrigins = []string{
 	"http://127.0.0.1:5500",
 	"http://localhost:5173",
 	"https://proyek3-pos.github.io/laundrypos-fe",
+	"https://laundrypos-fe.vercel.app",
 }
 
 func LoadConfig() (Config, error) {
