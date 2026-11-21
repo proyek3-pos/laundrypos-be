@@ -3,7 +3,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"laundry-pos/config"
 	"laundry-pos/models"
 	"laundry-pos/services"
@@ -14,168 +14,265 @@ import (
 	"github.com/google/uuid"
 	"github.com/veritrans/go-midtrans"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
-// Membuat pembayaran menggunakan Midtrans
-func CreatePayment(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-	var paymentReq models.Payment
-	if err := json.NewDecoder(r.Body).Decode(&paymentReq); err != nil {
-		http.Error(w, "Input tidak valid", http.StatusBadRequest)
-		return
-	}
-
-	// Pastikan transaction_id tersedia
-	if paymentReq.TransactionID.IsZero() {
-		http.Error(w, "Transaction ID tidak disediakan", http.StatusBadRequest)
-		return
-	}
-
-	// Ambil transaksi dari database berdasarkan TransactionID yang diberikan
-	var transaction models.Transaction
-	err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": paymentReq.TransactionID}).Decode(&transaction)
+// withTransaction menjalankan operasi multi-dokumen secara atomik.
+// Butuh replica set; MongoDB Atlas memang replica set.
+func withTransaction(ctx context.Context, fn func(mongo.SessionContext) error) error {
+	sess, err := config.Client.StartSession()
 	if err != nil {
+		return err
+	}
+	defer sess.EndSession(ctx)
+	_, err = sess.WithTransaction(ctx, func(sc mongo.SessionContext) (interface{}, error) {
+		return nil, fn(sc)
+	})
+	return err
+}
+
+// CreatePayment membuat pembayaran Midtrans Snap untuk satu transaksi.
+func CreatePayment(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TransactionID primitive.ObjectID `json:"transactionId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransactionID.IsZero() {
+		http.Error(w, "transactionId tidak valid", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var transaction models.Transaction
+	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": req.TransactionID}).Decode(&transaction); err != nil {
 		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
 		return
 	}
-
-	// Menghitung gross_amount dalam cent
-	// Jangan kalikan dua kali! Pastikan ini adalah dalam rupiah saja (misalnya 16000)
-	// Jika transaksi sudah dalam rupiah, kirim langsung dengan mengalikannya hanya di bagian snapReq.
-
-	paymentReq.GrossAmount = transaction.TotalAmount // Jangan kalikan dengan 100 di sini, ini sudah dalam rupiah
-
-	// Generate OrderID jika belum disediakan
-	if paymentReq.OrderID == "" {
-		paymentReq.OrderID = uuid.New().String()
-	}
-
-	// Inisialisasi Midtrans Client dan Snap Gateway
-	midtransClient := services.MidtransClient()
-	snapGateway := midtrans.SnapGateway{Client: *midtransClient}
-
-	// Membuat request ke Midtrans dengan data transaksi
-	snapReq := &midtrans.SnapReq{
-		TransactionDetails: midtrans.TransactionDetails{
-			OrderID:  paymentReq.OrderID,
-			GrossAmt: int64(paymentReq.GrossAmount), 
-		},
-	}
-
-	snapResp, err := snapGateway.GetToken(snapReq)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Gagal membuat pembayaran: %v", err), http.StatusInternalServerError)
+	if transaction.PaymentStatus == "paid" {
+		http.Error(w, "Pesanan sudah dibayar", http.StatusConflict)
 		return
 	}
 
-	// Tambahkan snap_url dan status pembayaran
-	paymentReq.SnapURL = snapResp.RedirectURL
-	paymentReq.Status = "Pending"
-	paymentReq.CreatedAt = time.Now()
+	// Pakai ulang Snap yang masih pending supaya tidak dobel tagihan.
+	var existing models.Payment
+	err := config.PaymentCollection.FindOne(ctx, bson.M{
+		"transactionId": req.TransactionID,
+		"status":        "pending",
+		"payment_method": "midtrans",
+	}).Decode(&existing)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"snap_url": existing.SnapURL,
+			"order_id": existing.OrderID,
+		})
+		return
+	}
+	if !errors.Is(err, mongo.ErrNoDocuments) {
+		http.Error(w, "Gagal mengambil data pembayaran", http.StatusInternalServerError)
+		return
+	}
 
-	// Simpan pembayaran
-	_, err = config.PaymentCollection.InsertOne(ctx, paymentReq)
+	payment := models.Payment{
+		ID:            primitive.NewObjectID(),
+		TransactionID: transaction.ID,
+		OrderID:       uuid.NewString(),
+		GrossAmount:   transaction.TotalAmount,
+		Status:        "pending",
+		PaymentMethod: "midtrans",
+		CreatedAt:     time.Now(),
+	}
+
+	snapGateway := midtrans.SnapGateway{Client: *services.MidtransClient()}
+	snapResp, err := snapGateway.GetToken(&midtrans.SnapReq{
+		TransactionDetails: midtrans.TransactionDetails{
+			OrderID:  payment.OrderID,
+			GrossAmt: int64(payment.GrossAmount),
+		},
+	})
 	if err != nil {
+		http.Error(w, "Gagal membuat pembayaran Midtrans", http.StatusBadGateway)
+		return
+	}
+	payment.SnapURL = snapResp.RedirectURL
+
+	if _, err := config.PaymentCollection.InsertOne(ctx, payment); err != nil {
 		http.Error(w, "Gagal menyimpan pembayaran", http.StatusInternalServerError)
 		return
 	}
 
-	// Ambil informasi customer dari database berdasarkan CustomerID yang ada di transaksi
-	var customer models.Customer
-	err = config.CustomerCollection.FindOne(ctx, bson.M{"_id": transaction.CustomerID}).Decode(&customer)
-	if err != nil {
-		http.Error(w, "Customer tidak ditemukan", http.StatusNotFound)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"snap_url": payment.SnapURL,
+		"order_id": payment.OrderID,
+	})
+}
+
+// CreateCashPayment menandai pesanan lunas via tunai dan menghitung kembalian.
+func CreateCashPayment(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TransactionID primitive.ObjectID `json:"transactionId"`
+		AmountPaid    float64            `json:"amountPaid"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransactionID.IsZero() {
+		http.Error(w, "Input tidak valid", http.StatusBadRequest)
 		return
 	}
 
-	// Kirim data konfirmasi pembayaran yang diperlukan
-	confirmationData := map[string]interface{}{
-		"fullName":     customer.FullName,
-		"phoneNumber":  customer.PhoneNumber,
-		"email":        customer.Email,
-		"service_name": transaction.Items[0].Service.ServiceName,
-		"quantity":     transaction.Items[0].Quantity,
-		"total_amount": transaction.TotalAmount,
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var transaction models.Transaction
+	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": req.TransactionID}).Decode(&transaction); err != nil {
+		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
+		return
+	}
+	if transaction.PaymentStatus == "paid" {
+		http.Error(w, "Pesanan sudah dibayar", http.StatusConflict)
+		return
+	}
+	if req.AmountPaid < transaction.TotalAmount {
+		http.Error(w, "Uang diterima kurang dari total", http.StatusBadRequest)
+		return
 	}
 
-	// Kirim response dengan snap_url, order_id, dan konfirmasi data
-	response := map[string]interface{}{
-		"snap_url":          paymentReq.SnapURL,
-		"order_id":          paymentReq.OrderID,
-		"confirmation_data": confirmationData, // Data konfirmasi transaksi
+	now := time.Now()
+	payment := models.Payment{
+		ID:            primitive.NewObjectID(),
+		TransactionID: transaction.ID,
+		OrderID:       uuid.NewString(),
+		GrossAmount:   transaction.TotalAmount,
+		AmountPaid:    req.AmountPaid,
+		Change:        req.AmountPaid - transaction.TotalAmount,
+		Status:        "paid",
+		PaymentMethod: "cash",
+		CreatedAt:     now,
+		PaidAt:        now,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	// Filter paymentStatus mencegah dua kasir bayar bersamaan; yang kalah
+	// menabrak ModifiedCount 0 dan transaksi Mongo di-roll back.
+	err := withTransaction(ctx, func(sc mongo.SessionContext) error {
+		res, err := config.TransactionCollection.UpdateOne(sc,
+			bson.M{"_id": transaction.ID, "paymentStatus": bson.M{"$ne": "paid"}},
+			bson.M{"$set": bson.M{"paymentMethod": "cash", "paymentStatus": "paid", "paidAt": now}},
+		)
+		if err != nil {
+			return err
+		}
+		if res.ModifiedCount == 0 {
+			return errors.New("pesanan sudah dibayar")
+		}
+		_, err = config.PaymentCollection.InsertOne(sc, payment)
+		return err
+	})
+	if err != nil {
+		http.Error(w, "Pesanan sudah dibayar", http.StatusConflict)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payment)
 }
 
-// WebhookHandler menangani notifikasi dari Midtrans
+// WebhookHandler menerima notifikasi Midtrans. Wajib public, keamanannya lewat
+// verifikasi signature SHA512.
 func WebhookHandler(w http.ResponseWriter, r *http.Request) {
-    var notificationPayload map[string]interface{}
-    if err := json.NewDecoder(r.Body).Decode(&notificationPayload); err != nil {
-        http.Error(w, "Invalid payload", http.StatusBadRequest)
-        return
-    }
+	var payload map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
 
-    orderID, _ := notificationPayload["order_id"].(string)
-    statusCode, _ := notificationPayload["status_code"].(string)
-    grossAmount, _ := notificationPayload["gross_amount"].(string)
-    signature, _ := notificationPayload["signature_key"].(string)
+	orderID, _ := payload["order_id"].(string)
+	statusCode, _ := payload["status_code"].(string)
+	grossAmount, _ := payload["gross_amount"].(string)
+	signature, _ := payload["signature_key"].(string)
+	rawStatus, _ := payload["transaction_status"].(string)
+	paymentType, _ := payload["payment_type"].(string)
 
-    if !services.VerifyMidtransSignature(orderID, statusCode, grossAmount, os.Getenv("MIDTRANS_SERVER_KEY"), signature) {
-        http.Error(w, "Signature tidak valid", http.StatusForbidden)
-        return
-    }
+	if !services.VerifyMidtransSignature(orderID, statusCode, grossAmount, os.Getenv("MIDTRANS_SERVER_KEY"), signature) {
+		http.Error(w, "Signature tidak valid", http.StatusForbidden)
+		return
+	}
 
-    // Ambil status pembayaran dari payload
-    transactionStatus, ok := notificationPayload["transaction_status"].(string)
-    if !ok {
-        http.Error(w, "Status transaksi tidak valid", http.StatusBadRequest)
-        return
-    }
+	status := services.MapMidtransStatus(rawStatus)
+	if status == "" {
+		// Status Midtrans yang tidak kita kenal: terima, jangan error,
+		// supaya Midtrans tidak terus mengulang notifikasi yang sama.
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
-    ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-    // Update status pembayaran di database
-    update := bson.M{"$set": bson.M{"status": transactionStatus}}
-    _, err := config.PaymentCollection.UpdateOne(ctx, bson.M{"order_id": orderID}, update)
-    if err != nil {
-        http.Error(w, "Gagal memperbarui status pembayaran", http.StatusInternalServerError)
-        return
-    }
+	var payment models.Payment
+	if err := config.PaymentCollection.FindOne(ctx, bson.M{"order_id": orderID}).Decode(&payment); err != nil {
+		http.Error(w, "Pembayaran tidak ditemukan", http.StatusNotFound)
+		return
+	}
+	if payment.Status == status {
+		w.WriteHeader(http.StatusOK) // notifikasi duplikat, sudah diproses
+		return
+	}
 
-    // Response ke Midtrans bahwa notifikasi diterima
-    w.WriteHeader(http.StatusOK)
+	err := withTransaction(ctx, func(sc mongo.SessionContext) error {
+		set := bson.M{"status": status, "midtrans_raw": rawStatus}
+		if paymentType != "" {
+			set["payment_method"] = paymentType
+		}
+		if status == "paid" {
+			set["paid_at"] = time.Now()
+		}
+		if _, err := config.PaymentCollection.UpdateOne(sc, bson.M{"_id": payment.ID}, bson.M{"$set": set}); err != nil {
+			return err
+		}
+		if status == "paid" {
+			_, err := config.TransactionCollection.UpdateOne(sc,
+				bson.M{"_id": payment.TransactionID, "paymentStatus": bson.M{"$ne": "paid"}},
+				bson.M{"$set": bson.M{"paymentMethod": "midtrans", "paymentStatus": "paid", "paidAt": time.Now()}},
+			)
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		// 500 supaya Midtrans mengulang notifikasi; idempoten di atas aman.
+		http.Error(w, "Gagal memperbarui pembayaran", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
-// GetPaymentByOrderID mendapatkan data pembayaran berdasarkan OrderID
+// GetPaymentByOrderID mengembalikan satu pembayaran berdasarkan order_id.
 func GetPaymentByOrderID(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-
-	// Ambil OrderID dari path parameter
 	orderID := r.PathValue("orderID")
 	if orderID == "" {
 		http.Error(w, "Order ID tidak disediakan", http.StatusBadRequest)
 		return
 	}
 
-	// Cari pembayaran di database berdasarkan OrderID
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var payment models.Payment
-	err := config.PaymentCollection.FindOne(ctx, bson.M{"order_id": orderID}).Decode(&payment)
-	if err != nil {
+	if err := config.PaymentCollection.FindOne(ctx, bson.M{"order_id": orderID}).Decode(&payment); err != nil {
 		http.Error(w, "Pembayaran tidak ditemukan", http.StatusNotFound)
 		return
 	}
 
-	// Kembalikan data pembayaran dalam bentuk JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(payment)
 }
 
-// GetAllPayments mendapatkan semua data pembayaran
 func GetAllPayments(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Cari semua pembayaran di database
 	cursor, err := config.PaymentCollection.Find(ctx, bson.M{})
 	if err != nil {
 		http.Error(w, "Gagal mengambil data pembayaran", http.StatusInternalServerError)
@@ -183,18 +280,12 @@ func GetAllPayments(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cursor.Close(ctx)
 
-	// Parse data pembayaran ke dalam slice
 	var payments []models.Payment
-	for cursor.Next(ctx) {
-		var payment models.Payment
-		if err := cursor.Decode(&payment); err != nil {
-			http.Error(w, "Gagal memproses data pembayaran", http.StatusInternalServerError)
-			return
-		}
-		payments = append(payments, payment)
+	if err := cursor.All(ctx, &payments); err != nil {
+		http.Error(w, "Gagal memproses data pembayaran", http.StatusInternalServerError)
+		return
 	}
 
-	// Kembalikan semua data pembayaran dalam bentuk JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(payments)
 }

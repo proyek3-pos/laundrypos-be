@@ -18,3 +18,23 @@ func TestVerifyMidtransSignature(t *testing.T) {
 		t.Fatal("want signature invalid")
 	}
 }
+
+func TestMapMidtransStatus(t *testing.T) {
+	cases := map[string]string{
+		"capture":   "paid",
+		"settlement": "paid",
+		"pending":   "pending",
+		"deny":      "failed",
+		"cancel":    "failed",
+		"expire":    "failed",
+		"failure":   "failed",
+	}
+	for in, want := range cases {
+		if got := MapMidtransStatus(in); got != want {
+			t.Fatalf("MapMidtransStatus(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if MapMidtransStatus("apa-aja") != "" {
+		t.Fatal("status tak dikenal harus string kosong")
+	}
+}

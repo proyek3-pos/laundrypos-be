@@ -37,11 +37,15 @@ func InitRoutes() *http.ServeMux {
 	mux.Handle("GET /transactions", h(controllers.GetTransactions))
 	mux.Handle("GET /transactions/{id}", h(controllers.GetTransactionByID))
 	mux.Handle("PUT /transactions/{id}", h(controllers.UpdateTransaction))
+	mux.Handle("PATCH /transactions/{id}/status", h(controllers.UpdateTransactionStatus))
 	mux.Handle("DELETE /transactions/{id}", admin(http.HandlerFunc(controllers.DeleteTransaction)))
 
 	mux.Handle("POST /payments/midtrans", h(controllers.CreatePayment))
+	mux.Handle("POST /payments/cash", h(controllers.CreateCashPayment))
 	mux.Handle("GET /payments", h(controllers.GetAllPayments))
 	mux.Handle("GET /payments/{orderID}", h(controllers.GetPaymentByOrderID))
+
+	mux.Handle("GET /reports/summary", admin(http.HandlerFunc(controllers.GetReportsSummary)))
 
 	// Webhook Midtrans memang harus publik, tapi diverifikasi signature.
 	mux.HandleFunc("POST /webhook/midtrans", controllers.WebhookHandler)

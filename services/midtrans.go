@@ -24,3 +24,18 @@ func VerifyMidtransSignature(orderID, statusCode, grossAmount, serverKey, signat
 	want := hex.EncodeToString(sum[:])
 	return strings.EqualFold(want, signature)
 }
+
+// MapMidtransStatus memetakan status mentah Midtrans ke status internal.
+// Status tak dikenal mengembalikan string kosong supaya caller bisa melewatinya.
+func MapMidtransStatus(transactionStatus string) string {
+	switch transactionStatus {
+	case "capture", "settlement":
+		return "paid"
+	case "pending":
+		return "pending"
+	case "deny", "cancel", "expire", "failure":
+		return "failed"
+	default:
+		return ""
+	}
+}
