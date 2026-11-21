@@ -52,12 +52,12 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		if len(token) < 8 || token[:7] != "Bearer " {
-			http.Error(w, "Token tidak valid", http.StatusUnauthorized)
+			utils.Err(w, http.StatusUnauthorized, "Token tidak valid")
 			return
 		}
 		claims, err := utils.ValidateJWT(token[7:])
 		if err != nil {
-			http.Error(w, "Token tidak valid", http.StatusUnauthorized)
+			utils.Err(w, http.StatusUnauthorized, "Token tidak valid")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(contextWithClaims(r.Context(), *claims)))
@@ -68,11 +68,11 @@ func RequireRole(role string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := ClaimsFromContext(r.Context())
 		if !ok {
-			http.Error(w, "Belum login", http.StatusUnauthorized)
+			utils.Err(w, http.StatusUnauthorized, "Belum login")
 			return
 		}
 		if claims.Role != role {
-			http.Error(w, "Akses ditolak", http.StatusForbidden)
+			utils.Err(w, http.StatusForbidden, "Akses ditolak")
 			return
 		}
 		next.ServeHTTP(w, r)

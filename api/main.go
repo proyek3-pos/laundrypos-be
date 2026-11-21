@@ -31,7 +31,7 @@ func init() {
 		log.Fatalf("indexes: %v", err)
 	}
 
-	router = middleware.EnableCORS(routes.InitRoutes())
+	router = middleware.EnableCORS(middleware.Logger(middleware.Recover(middleware.LimitBody(routes.InitRoutes()))))
 }
 
 // Handler dipanggil Vercel untuk setiap request.

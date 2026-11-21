@@ -2,8 +2,8 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"laundry-pos/config"
+	"laundry-pos/utils"
 	"net/http"
 	"time"
 
@@ -20,12 +20,12 @@ func GetReportsSummary(w http.ResponseWriter, r *http.Request) {
 
 	revenueToday, err := sumPaidRevenue(ctx, startOfDay)
 	if err != nil {
-		http.Error(w, "Gagal menghitung pendapatan harian", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghitung pendapatan harian")
 		return
 	}
 	revenueMonth, err := sumPaidRevenue(ctx, startOfMonth)
 	if err != nil {
-		http.Error(w, "Gagal menghitung pendapatan bulanan", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghitung pendapatan bulanan")
 		return
 	}
 	ordersToday, err := config.TransactionCollection.CountDocuments(ctx, bson.M{
@@ -33,7 +33,7 @@ func GetReportsSummary(w http.ResponseWriter, r *http.Request) {
 		"status":          bson.M{"$ne": "batal"},
 	})
 	if err != nil {
-		http.Error(w, "Gagal menghitung pesanan", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghitung pesanan")
 		return
 	}
 	unpaid, err := config.TransactionCollection.CountDocuments(ctx, bson.M{
@@ -41,16 +41,15 @@ func GetReportsSummary(w http.ResponseWriter, r *http.Request) {
 		"status":        bson.M{"$ne": "batal"},
 	})
 	if err != nil {
-		http.Error(w, "Gagal menghitung pesanan belum lunas", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghitung pesanan belum lunas")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"revenueToday":   revenueToday,
-		"revenueMonth":   revenueMonth,
-		"ordersToday":    ordersToday,
-		"unpaidCount":    unpaid,
+	utils.JSON(w, http.StatusOK, map[string]any{
+		"revenueToday": revenueToday,
+		"revenueMonth": revenueMonth,
+		"ordersToday":  ordersToday,
+		"unpaidCount":  unpaid,
 	})
 }
 

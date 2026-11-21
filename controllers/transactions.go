@@ -10,10 +10,12 @@ import (
 	"laundry-pos/services"
 	"laundry-pos/utils"
 	"net/http"
+	"regexp"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // recomputeItems memvalidasi item dan menghitung ulang harga dari data layanan;
@@ -44,16 +46,16 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		Items      []models.TransactionItem `json:"items"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Input tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
 		return
 	}
 	customerID, err := primitive.ObjectIDFromHex(req.CustomerID)
 	if err != nil {
-		http.Error(w, "customerId tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "customerId tidak valid")
 		return
 	}
 	if len(req.Items) == 0 {
-		http.Error(w, "Pesanan minimal satu item", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Pesanan minimal satu item")
 		return
 	}
 
@@ -62,13 +64,13 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 
 	var customer models.Customer
 	if err := config.CustomerCollection.FindOne(ctx, bson.M{"_id": customerID}).Decode(&customer); err != nil {
-		http.Error(w, "Customer tidak ditemukan", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Customer tidak ditemukan")
 		return
 	}
 
 	items, total, err := recomputeItems(ctx, req.Items)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -88,29 +90,60 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := config.TransactionCollection.InsertOne(ctx, transaction); err != nil {
-		http.Error(w, "Gagal menyimpan transaksi", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menyimpan transaksi")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(transaction)
+	utils.JSON(w, http.StatusCreated, transaction)
 }
 
 func GetTransactions(w http.ResponseWriter, r *http.Request) {
+	page, limit := utils.PageParams(r)
+	filter := bson.M{}
+	if s := r.URL.Query().Get("status"); s != "" {
+		filter["status"] = s
+	}
+	if q := r.URL.Query().Get("q"); q != "" {
+		filter["invoiceNumber"] = bson.M{"$regex": regexp.QuoteMeta(q), "$options": "i"}
+	}
+	dateFilter := bson.M{}
+	if v := r.URL.Query().Get("from"); v != "" {
+		if t, err := time.ParseInLocation("2006-01-02", v, time.Local); err == nil {
+			dateFilter["$gte"] = t
+		}
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		if t, err := time.ParseInLocation("2006-01-02", v, time.Local); err == nil {
+			dateFilter["$lt"] = t.AddDate(0, 0, 1)
+		}
+	}
+	if len(dateFilter) > 0 {
+		filter["transactionDate"] = dateFilter
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cursor, err := config.TransactionCollection.Find(ctx, bson.M{})
+	total, err := config.TransactionCollection.CountDocuments(ctx, filter)
 	if err != nil {
-		http.Error(w, "Gagal mendapatkan data transaksi", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghitung transaksi")
+		return
+	}
+
+	opts := options.Find().
+		SetSkip(int64((page - 1) * limit)).
+		SetLimit(int64(limit)).
+		SetSort(bson.M{"transactionDate": -1})
+	cursor, err := config.TransactionCollection.Find(ctx, filter, opts)
+	if err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal mendapatkan transaksi")
 		return
 	}
 	defer cursor.Close(ctx)
 
 	var transactions []models.Transaction
 	if err = cursor.All(ctx, &transactions); err != nil {
-		http.Error(w, "Gagal membaca data transaksi", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal membaca transaksi")
 		return
 	}
 
@@ -138,14 +171,13 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(transactions)
+	utils.Page(w, http.StatusOK, transactions, map[string]any{"page": page, "limit": limit, "total": total})
 }
 
 func GetTransactionByID(w http.ResponseWriter, r *http.Request) {
 	objID, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "ID tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
@@ -154,7 +186,7 @@ func GetTransactionByID(w http.ResponseWriter, r *http.Request) {
 
 	var transaction models.Transaction
 	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&transaction); err != nil {
-		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
+		utils.Err(w, http.StatusNotFound, "Transaksi tidak ditemukan")
 		return
 	}
 
@@ -163,8 +195,7 @@ func GetTransactionByID(w http.ResponseWriter, r *http.Request) {
 		transaction.Customer = customer
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(transaction)
+	utils.JSON(w, http.StatusOK, transaction)
 }
 
 // UpdateTransaction hanya untuk koreksi item saat pesanan masih pending;
@@ -172,7 +203,7 @@ func GetTransactionByID(w http.ResponseWriter, r *http.Request) {
 func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	objID, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "ID tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
@@ -181,16 +212,16 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		Items      []models.TransactionItem `json:"items"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Input tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
 		return
 	}
 	if len(req.Items) == 0 {
-		http.Error(w, "Pesanan minimal satu item", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Pesanan minimal satu item")
 		return
 	}
 	customerID, err := primitive.ObjectIDFromHex(req.CustomerID)
 	if err != nil {
-		http.Error(w, "customerId tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "customerId tidak valid")
 		return
 	}
 
@@ -199,23 +230,23 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 
 	var existing models.Transaction
 	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&existing); err != nil {
-		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
+		utils.Err(w, http.StatusNotFound, "Transaksi tidak ditemukan")
 		return
 	}
 	if existing.Status != "pending" {
-		http.Error(w, "Pesanan sudah diproses dan tidak bisa diubah", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Pesanan sudah diproses dan tidak bisa diubah")
 		return
 	}
 
 	var customer models.Customer
 	if err := config.CustomerCollection.FindOne(ctx, bson.M{"_id": customerID}).Decode(&customer); err != nil {
-		http.Error(w, "Customer tidak ditemukan", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Customer tidak ditemukan")
 		return
 	}
 
 	items, total, err := recomputeItems(ctx, req.Items)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -226,24 +257,23 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		"totalAmount": total,
 	}}
 	if _, err := config.TransactionCollection.UpdateOne(ctx, bson.M{"_id": objID}, update); err != nil {
-		http.Error(w, "Gagal memperbarui transaksi", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal memperbarui transaksi")
 		return
 	}
 
 	var updated models.Transaction
 	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&updated); err != nil {
-		http.Error(w, "Gagal mendapatkan transaksi setelah update", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal mendapatkan transaksi setelah update")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(updated)
+	utils.JSON(w, http.StatusOK, updated)
 }
 
 func UpdateTransactionStatus(w http.ResponseWriter, r *http.Request) {
 	objID, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "ID tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
@@ -251,7 +281,7 @@ func UpdateTransactionStatus(w http.ResponseWriter, r *http.Request) {
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Input tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
 		return
 	}
 
@@ -260,38 +290,37 @@ func UpdateTransactionStatus(w http.ResponseWriter, r *http.Request) {
 
 	var transaction models.Transaction
 	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&transaction); err != nil {
-		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
+		utils.Err(w, http.StatusNotFound, "Transaksi tidak ditemukan")
 		return
 	}
 	if !services.CanTransition(transaction.Status, req.Status) {
-		http.Error(w, fmt.Sprintf("Transisi status %s ke %s tidak valid", transaction.Status, req.Status), http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, fmt.Sprintf("Transisi status %s ke %s tidak valid", transaction.Status, req.Status))
 		return
 	}
 
 	claims, _ := middleware.ClaimsFromContext(r.Context())
 	update := bson.M{
-		"$set":   bson.M{"status": req.Status},
-		"$push":  bson.M{"statusHistory": models.StatusEvent{Status: req.Status, At: time.Now(), By: claims.Username}},
+		"$set":  bson.M{"status": req.Status},
+		"$push": bson.M{"statusHistory": models.StatusEvent{Status: req.Status, At: time.Now(), By: claims.Username}},
 	}
 	if _, err := config.TransactionCollection.UpdateOne(ctx, bson.M{"_id": objID}, update); err != nil {
-		http.Error(w, "Gagal memperbarui status", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal memperbarui status")
 		return
 	}
 
 	var updated models.Transaction
 	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&updated); err != nil {
-		http.Error(w, "Gagal mendapatkan transaksi setelah update", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal mendapatkan transaksi setelah update")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(updated)
+	utils.JSON(w, http.StatusOK, updated)
 }
 
 func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 	objID, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "ID tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
@@ -299,10 +328,9 @@ func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if _, err = config.TransactionCollection.DeleteOne(ctx, bson.M{"_id": objID}); err != nil {
-		http.Error(w, "Gagal menghapus transaksi", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghapus transaksi")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Transaksi berhasil dihapus"})
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Transaksi dihapus"})
 }

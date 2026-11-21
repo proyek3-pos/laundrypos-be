@@ -94,3 +94,37 @@ func TestValidateQuantity(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateName(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantErr bool
+	}{
+		{"", true},
+		{"A", true},
+		{"Budi Santoso", false},
+	}
+	for _, c := range cases {
+		if err := ValidateName(c.in); (err != nil) != c.wantErr {
+			t.Fatalf("ValidateName(%q) = %v, wantErr %v", c.in, err, c.wantErr)
+		}
+	}
+}
+
+func TestValidatePhone(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantErr bool
+	}{
+		{"", true},
+		{"1234567", true},
+		{"081234567890", false},
+		{"+6281234567890", false},
+		{"0812-3456", true},
+	}
+	for _, c := range cases {
+		if err := ValidatePhone(c.in); (err != nil) != c.wantErr {
+			t.Fatalf("ValidatePhone(%q) = %v, wantErr %v", c.in, err, c.wantErr)
+		}
+	}
+}

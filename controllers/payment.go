@@ -7,6 +7,7 @@ import (
 	"laundry-pos/config"
 	"laundry-pos/models"
 	"laundry-pos/services"
+	"laundry-pos/utils"
 	"net/http"
 	"os"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // withTransaction menjalankan operasi multi-dokumen secara atomik.
@@ -38,7 +40,7 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 		TransactionID primitive.ObjectID `json:"transactionId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransactionID.IsZero() {
-		http.Error(w, "transactionId tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "transactionId tidak valid")
 		return
 	}
 
@@ -47,31 +49,30 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 
 	var transaction models.Transaction
 	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": req.TransactionID}).Decode(&transaction); err != nil {
-		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
+		utils.Err(w, http.StatusNotFound, "Transaksi tidak ditemukan")
 		return
 	}
 	if transaction.PaymentStatus == "paid" {
-		http.Error(w, "Pesanan sudah dibayar", http.StatusConflict)
+		utils.Err(w, http.StatusConflict, "Pesanan sudah dibayar")
 		return
 	}
 
 	// Pakai ulang Snap yang masih pending supaya tidak dobel tagihan.
 	var existing models.Payment
 	err := config.PaymentCollection.FindOne(ctx, bson.M{
-		"transactionId": req.TransactionID,
-		"status":        "pending",
+		"transactionId":  req.TransactionID,
+		"status":         "pending",
 		"payment_method": "midtrans",
 	}).Decode(&existing)
 	if err == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		utils.JSON(w, http.StatusOK, map[string]string{
 			"snap_url": existing.SnapURL,
 			"order_id": existing.OrderID,
 		})
 		return
 	}
 	if !errors.Is(err, mongo.ErrNoDocuments) {
-		http.Error(w, "Gagal mengambil data pembayaran", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal mengambil data pembayaran")
 		return
 	}
 
@@ -93,18 +94,17 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	if err != nil {
-		http.Error(w, "Gagal membuat pembayaran Midtrans", http.StatusBadGateway)
+		utils.Err(w, http.StatusBadGateway, "Gagal membuat pembayaran Midtrans")
 		return
 	}
 	payment.SnapURL = snapResp.RedirectURL
 
 	if _, err := config.PaymentCollection.InsertOne(ctx, payment); err != nil {
-		http.Error(w, "Gagal menyimpan pembayaran", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menyimpan pembayaran")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	utils.JSON(w, http.StatusCreated, map[string]string{
 		"snap_url": payment.SnapURL,
 		"order_id": payment.OrderID,
 	})
@@ -117,7 +117,7 @@ func CreateCashPayment(w http.ResponseWriter, r *http.Request) {
 		AmountPaid    float64            `json:"amountPaid"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransactionID.IsZero() {
-		http.Error(w, "Input tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
 		return
 	}
 
@@ -126,15 +126,15 @@ func CreateCashPayment(w http.ResponseWriter, r *http.Request) {
 
 	var transaction models.Transaction
 	if err := config.TransactionCollection.FindOne(ctx, bson.M{"_id": req.TransactionID}).Decode(&transaction); err != nil {
-		http.Error(w, "Transaksi tidak ditemukan", http.StatusNotFound)
+		utils.Err(w, http.StatusNotFound, "Transaksi tidak ditemukan")
 		return
 	}
 	if transaction.PaymentStatus == "paid" {
-		http.Error(w, "Pesanan sudah dibayar", http.StatusConflict)
+		utils.Err(w, http.StatusConflict, "Pesanan sudah dibayar")
 		return
 	}
 	if req.AmountPaid < transaction.TotalAmount {
-		http.Error(w, "Uang diterima kurang dari total", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Uang diterima kurang dari total")
 		return
 	}
 
@@ -169,12 +169,11 @@ func CreateCashPayment(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
-		http.Error(w, "Pesanan sudah dibayar", http.StatusConflict)
+		utils.Err(w, http.StatusConflict, "Pesanan sudah dibayar")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(payment)
+	utils.JSON(w, http.StatusCreated, payment)
 }
 
 // WebhookHandler menerima notifikasi Midtrans. Wajib public, keamanannya lewat
@@ -182,7 +181,7 @@ func CreateCashPayment(w http.ResponseWriter, r *http.Request) {
 func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 	var payload map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Invalid payload")
 		return
 	}
 
@@ -194,7 +193,7 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 	paymentType, _ := payload["payment_type"].(string)
 
 	if !services.VerifyMidtransSignature(orderID, statusCode, grossAmount, os.Getenv("MIDTRANS_SERVER_KEY"), signature) {
-		http.Error(w, "Signature tidak valid", http.StatusForbidden)
+		utils.Err(w, http.StatusForbidden, "Signature tidak valid")
 		return
 	}
 
@@ -211,7 +210,7 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 
 	var payment models.Payment
 	if err := config.PaymentCollection.FindOne(ctx, bson.M{"order_id": orderID}).Decode(&payment); err != nil {
-		http.Error(w, "Pembayaran tidak ditemukan", http.StatusNotFound)
+		utils.Err(w, http.StatusNotFound, "Pembayaran tidak ditemukan")
 		return
 	}
 	if payment.Status == status {
@@ -241,7 +240,7 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		// 500 supaya Midtrans mengulang notifikasi; idempoten di atas aman.
-		http.Error(w, "Gagal memperbarui pembayaran", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal memperbarui pembayaran")
 		return
 	}
 
@@ -252,7 +251,7 @@ func WebhookHandler(w http.ResponseWriter, r *http.Request) {
 func GetPaymentByOrderID(w http.ResponseWriter, r *http.Request) {
 	orderID := r.PathValue("orderID")
 	if orderID == "" {
-		http.Error(w, "Order ID tidak disediakan", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Order ID tidak disediakan")
 		return
 	}
 
@@ -261,31 +260,41 @@ func GetPaymentByOrderID(w http.ResponseWriter, r *http.Request) {
 
 	var payment models.Payment
 	if err := config.PaymentCollection.FindOne(ctx, bson.M{"order_id": orderID}).Decode(&payment); err != nil {
-		http.Error(w, "Pembayaran tidak ditemukan", http.StatusNotFound)
+		utils.Err(w, http.StatusNotFound, "Pembayaran tidak ditemukan")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(payment)
+	utils.JSON(w, http.StatusOK, payment)
 }
 
 func GetAllPayments(w http.ResponseWriter, r *http.Request) {
+	page, limit := utils.PageParams(r)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cursor, err := config.PaymentCollection.Find(ctx, bson.M{})
+	total, err := config.PaymentCollection.CountDocuments(ctx, bson.M{})
 	if err != nil {
-		http.Error(w, "Gagal mengambil data pembayaran", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghitung pembayaran")
+		return
+	}
+
+	opts := options.Find().
+		SetSkip(int64((page - 1) * limit)).
+		SetLimit(int64(limit)).
+		SetSort(bson.M{"created_at": -1})
+	cursor, err := config.PaymentCollection.Find(ctx, bson.M{}, opts)
+	if err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal mengambil pembayaran")
 		return
 	}
 	defer cursor.Close(ctx)
 
 	var payments []models.Payment
 	if err := cursor.All(ctx, &payments); err != nil {
-		http.Error(w, "Gagal memproses data pembayaran", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal memproses pembayaran")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(payments)
+	utils.Page(w, http.StatusOK, payments, map[string]any{"page": page, "limit": limit, "total": total})
 }

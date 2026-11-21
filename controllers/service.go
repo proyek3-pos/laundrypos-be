@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"laundry-pos/config"
 	"laundry-pos/models"
+	"laundry-pos/utils"
 	"net/http"
 	"time"
 
@@ -12,185 +13,129 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Fungsi untuk menambah layanan baru
+func validateService(s models.Service) error {
+	if err := utils.ValidateName(s.ServiceName); err != nil {
+		return err
+	}
+	if err := utils.ValidatePrice(s.UnitPrice); err != nil {
+		return err
+	}
+	return utils.ValidateUnit(s.Unit)
+}
+
 func CreateService(w http.ResponseWriter, r *http.Request) {
 	var service models.Service
-	// Decode JSON body dari request ke dalam struct service
 	if err := json.NewDecoder(r.Body).Decode(&service); err != nil {
-		http.Error(w, "Input tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
+		return
+	}
+	if err := validateService(service); err != nil {
+		utils.Err(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Generate ObjectID untuk layanan baru
 	service.ID = primitive.NewObjectID()
 
-	// Simpan service ke database
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := config.ServiceCollection.InsertOne(ctx, service)
-	if err != nil {
-		http.Error(w, "Gagal menambahkan layanan", http.StatusInternalServerError)
+	if _, err := config.ServiceCollection.InsertOne(ctx, service); err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal menambah layanan")
 		return
 	}
 
-	// Kirim response yang berisi pesan sukses dan data layanan yang baru ditambahkan
-	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
-		"message": "Layanan berhasil ditambahkan",
-		"service": service,
-	}
-	json.NewEncoder(w).Encode(response)
+	utils.JSON(w, http.StatusCreated, service)
 }
 
-// Dapatkan semua layanan
+// GetAllServices tanpa pagination: daftar ini juga dipakai dropdown kasir.
 func GetAllServices(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Query untuk mendapatkan semua layanan
-	cursor, err := config.ServiceCollection.Find(ctx, bson.M{})
+	cursor, err := config.ServiceCollection.Find(ctx, bson.M{}, nil)
 	if err != nil {
-		http.Error(w, "Gagal mendapatkan layanan", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal mendapatkan layanan")
 		return
 	}
 	defer cursor.Close(ctx)
 
 	var services []models.Service
-	for cursor.Next(ctx) {
-		var service models.Service
-		if err := cursor.Decode(&service); err != nil {
-			http.Error(w, "Gagal membaca layanan", http.StatusInternalServerError)
-			return
-		}
-		services = append(services, service)
-	}
-
-	if err := cursor.Err(); err != nil {
-		http.Error(w, "Cursor error", http.StatusInternalServerError)
+	if err := cursor.All(ctx, &services); err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal membaca layanan")
 		return
 	}
 
-	// Kirim daftar layanan
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(services)
+	utils.JSON(w, http.StatusOK, services)
 }
 
-// Dapatkan layanan berdasarkan ID
 func GetServiceByID(w http.ResponseWriter, r *http.Request) {
-	// Ambil ID dari URL parameter
-	serviceID := r.PathValue("id")
-	if serviceID == "" {
-		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
-		return
-	}
-
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(serviceID)
+	id, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "ID tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	// Query MongoDB untuk mencari service berdasarkan ID
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var service models.Service
-	err = config.ServiceCollection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&service)
-	if err != nil {
-		http.Error(w, "Layanan tidak ditemukan", http.StatusNotFound)
+	if err := config.ServiceCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&service); err != nil {
+		utils.Err(w, http.StatusNotFound, "Layanan tidak ditemukan")
 		return
 	}
 
-	// Kirim response service yang ditemukan
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(service)
+	utils.JSON(w, http.StatusOK, service)
 }
 
-// Fungsi untuk memperbarui layanan
 func UpdateService(w http.ResponseWriter, r *http.Request) {
-	// Ambil ID dari URL parameter
-	serviceID := r.PathValue("id")
-	if serviceID == "" {
-		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
-		return
-	}
-
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(serviceID)
+	id, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "ID tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	// Decode data service yang baru dari request body
-	var updatedService models.Service
-	if err := json.NewDecoder(r.Body).Decode(&updatedService); err != nil {
-		http.Error(w, "Input tidak valid", http.StatusBadRequest)
+	var service models.Service
+	if err := json.NewDecoder(r.Body).Decode(&service); err != nil {
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
+		return
+	}
+	if err := validateService(service); err != nil {
+		utils.Err(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Set ID ke service sebelum update
-	updatedService.ID = id
-
-	// Update data service di MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	update := bson.M{
-		"$set": bson.M{
-			"serviceName": updatedService.ServiceName,
-			"description": updatedService.Description,
-			"unitPrice":   updatedService.UnitPrice,
-			"unit":        updatedService.Unit,
-		},
-	}
-
-	_, err = config.ServiceCollection.UpdateOne(ctx, bson.M{"_id": id}, update)
-	if err != nil {
-		http.Error(w, "Gagal memperbarui layanan", http.StatusInternalServerError)
+	update := bson.M{"$set": bson.M{
+		"serviceName": service.ServiceName,
+		"description": service.Description,
+		"unitPrice":   service.UnitPrice,
+		"unit":        service.Unit,
+	}}
+	if _, err := config.ServiceCollection.UpdateOne(ctx, bson.M{"_id": id}, update); err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal memperbarui layanan")
 		return
 	}
 
-	// Kirim response dengan pesan sukses dan data yang diperbarui
-	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
-		"message": "Layanan berhasil diperbarui",
-		"service": updatedService,
-	}
-	json.NewEncoder(w).Encode(response)
+	service.ID = id
+	utils.JSON(w, http.StatusOK, service)
 }
 
-
-// Fungsi untuk menghapus layanan
 func DeleteService(w http.ResponseWriter, r *http.Request) {
-	// Ambil ID dari URL parameter
-	serviceID := r.PathValue("id")
-	if serviceID == "" {
-		http.Error(w, "ID tidak disediakan", http.StatusBadRequest)
-		return
-	}
-
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(serviceID)
+	id, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "ID tidak valid", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	// Hapus service dari MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err = config.ServiceCollection.DeleteOne(ctx, bson.M{"_id": id})
-	if err != nil {
-		http.Error(w, "Gagal menghapus layanan", http.StatusInternalServerError)
+	if _, err := config.ServiceCollection.DeleteOne(ctx, bson.M{"_id": id}); err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghapus layanan")
 		return
 	}
 
-	// Kirim response bahwa layanan berhasil dihapus dengan pesan dan ID yang dihapus
-	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
-		"message":    "Layanan berhasil dihapus",
-		"deleted_id": id.Hex(),
-	}
-	json.NewEncoder(w).Encode(response)
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Layanan dihapus"})
 }

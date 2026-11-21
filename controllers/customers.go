@@ -5,168 +5,152 @@ import (
 	"encoding/json"
 	"laundry-pos/config"
 	"laundry-pos/models"
+	"laundry-pos/utils"
 	"net/http"
+	"regexp"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// Fungsi untuk menambah customer baru
-func AddCustomer(w http.ResponseWriter, r *http.Request) {
-	var customer models.Customer
-	// Decode JSON body dari request ke dalam struct customer
-	if err := json.NewDecoder(r.Body).Decode(&customer); err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
-		return
+func validateCustomer(c models.Customer) error {
+	if err := utils.ValidateName(c.FullName); err != nil {
+		return err
 	}
-
-	// Simpan customer ke database
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Insert customer ke dalam MongoDB
-	_, err := config.CustomerCollection.InsertOne(ctx, customer)
-	if err != nil {
-		http.Error(w, "Failed to create customer", http.StatusInternalServerError)
-		return
+	if err := utils.ValidatePhone(c.PhoneNumber); err != nil {
+		return err
 	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Customer added successfully"})
+	return utils.ValidateEmail(c.Email)
 }
 
-// Fungsi untuk mendapatkan daftar semua customers
-func GetAllCustomers(w http.ResponseWriter, r *http.Request) {
+func AddCustomer(w http.ResponseWriter, r *http.Request) {
+	var customer models.Customer
+	if err := json.NewDecoder(r.Body).Decode(&customer); err != nil {
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
+		return
+	}
+	if err := validateCustomer(customer); err != nil {
+		utils.Err(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Query untuk mendapatkan semua customers
-	cursor, err := config.CustomerCollection.Find(ctx, bson.M{})
+	res, err := config.CustomerCollection.InsertOne(ctx, customer)
 	if err != nil {
-		http.Error(w, "Failed to fetch customers", http.StatusInternalServerError)
+		utils.Err(w, http.StatusInternalServerError, "Gagal menambah customer")
+		return
+	}
+	customer.ID = res.InsertedID.(primitive.ObjectID)
+	utils.JSON(w, http.StatusCreated, customer)
+}
+
+func GetAllCustomers(w http.ResponseWriter, r *http.Request) {
+	page, limit := utils.PageParams(r)
+	filter := bson.M{}
+	if q := r.URL.Query().Get("q"); q != "" {
+		filter["fullName"] = bson.M{"$regex": regexp.QuoteMeta(q), "$options": "i"}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	total, err := config.CustomerCollection.CountDocuments(ctx, filter)
+	if err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghitung customer")
+		return
+	}
+
+	opts := options.Find().
+		SetSkip(int64((page - 1) * limit)).
+		SetLimit(int64(limit)).
+		SetSort(bson.M{"fullName": 1})
+	cursor, err := config.CustomerCollection.Find(ctx, filter, opts)
+	if err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal mendapatkan customer")
 		return
 	}
 	defer cursor.Close(ctx)
 
 	var customers []models.Customer
-	for cursor.Next(ctx) {
-		var customer models.Customer
-		if err := cursor.Decode(&customer); err != nil {
-			http.Error(w, "Failed to decode customer data", http.StatusInternalServerError)
-			return
-		}
-		customers = append(customers, customer)
-	}
-
-	if err := cursor.Err(); err != nil {
-		http.Error(w, "Cursor error", http.StatusInternalServerError)
+	if err := cursor.All(ctx, &customers); err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal membaca customer")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(customers)
+	utils.Page(w, http.StatusOK, customers, map[string]any{"page": page, "limit": limit, "total": total})
 }
 
-// Fungsi untuk mendapatkan customer berdasarkan ID
 func GetCustomerByID(w http.ResponseWriter, r *http.Request) {
-	// Ambil ID dari URL parameter
-	customerID := r.PathValue("id")
-	if customerID == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(customerID)
+	id, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	// Query MongoDB untuk mencari customer berdasarkan ID
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var customer models.Customer
-	err = config.CustomerCollection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&customer)
-	if err != nil {
-		http.Error(w, "Customer not found", http.StatusNotFound)
+	if err := config.CustomerCollection.FindOne(ctx, bson.M{"_id": id}).Decode(&customer); err != nil {
+		utils.Err(w, http.StatusNotFound, "Customer tidak ditemukan")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(customer)
+	utils.JSON(w, http.StatusOK, customer)
 }
 
-// Fungsi untuk memperbarui data customer
 func UpdateCustomer(w http.ResponseWriter, r *http.Request) {
-	// Ambil ID dari URL parameter
-	customerID := r.PathValue("id")
-	if customerID == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(customerID)
+	id, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	// Decode data customer yang baru dari request body
-	var updatedCustomer models.Customer
-	if err := json.NewDecoder(r.Body).Decode(&updatedCustomer); err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+	var customer models.Customer
+	if err := json.NewDecoder(r.Body).Decode(&customer); err != nil {
+		utils.Err(w, http.StatusBadRequest, "Input tidak valid")
+		return
+	}
+	if err := validateCustomer(customer); err != nil {
+		utils.Err(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Update data customer di MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	update := bson.M{
-		"$set": bson.M{
-			"fullName":   updatedCustomer.FullName,
-			"phoneNumber": updatedCustomer.PhoneNumber,
-			"email":      updatedCustomer.Email,
-		},
-	}
-
-	_, err = config.CustomerCollection.UpdateOne(ctx, bson.M{"_id": id}, update)
-	if err != nil {
-		http.Error(w, "Failed to update customer", http.StatusInternalServerError)
+	update := bson.M{"$set": bson.M{
+		"fullName":    customer.FullName,
+		"phoneNumber": customer.PhoneNumber,
+		"email":       customer.Email,
+	}}
+	if _, err := config.CustomerCollection.UpdateOne(ctx, bson.M{"_id": id}, update); err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal memperbarui customer")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Customer updated successfully"})
+	customer.ID = id
+	utils.JSON(w, http.StatusOK, customer)
 }
 
-// Fungsi untuk menghapus customer berdasarkan ID
 func DeleteCustomer(w http.ResponseWriter, r *http.Request) {
-	// Ambil ID dari URL parameter
-	customerID := r.PathValue("id")
-	if customerID == "" {
-		http.Error(w, "ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Convert ID menjadi ObjectID MongoDB
-	id, err := primitive.ObjectIDFromHex(customerID)
+	id, err := primitive.ObjectIDFromHex(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
+		utils.Err(w, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
 
-	// Hapus customer dari MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err = config.CustomerCollection.DeleteOne(ctx, bson.M{"_id": id})
-	if err != nil {
-		http.Error(w, "Failed to delete customer", http.StatusInternalServerError)
+	if _, err := config.CustomerCollection.DeleteOne(ctx, bson.M{"_id": id}); err != nil {
+		utils.Err(w, http.StatusInternalServerError, "Gagal menghapus customer")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Customer deleted successfully"})
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Customer dihapus"})
 }

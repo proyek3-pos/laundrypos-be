@@ -41,6 +41,22 @@ func ValidateUnit(s string) error {
 	return nil
 }
 
+func ValidateName(s string) error {
+	if len(s) < 2 || len(s) > 100 {
+		return errors.New("nama harus 2-100 karakter")
+	}
+	return nil
+}
+
+var phoneRe = regexp.MustCompile(`^\+?[0-9]{8,15}$`)
+
+func ValidatePhone(s string) error {
+	if !phoneRe.MatchString(s) {
+		return errors.New("nomor telepon 8-15 digit")
+	}
+	return nil
+}
+
 func ValidatePrice(p float64) error {
 	if p <= 0 {
 		return errors.New("harga harus lebih dari 0")
