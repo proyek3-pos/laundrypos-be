@@ -16,6 +16,10 @@ import (
 func main() {
 	_ = godotenv.Load()
 
+	if err := config.UseLocalTZ(); err != nil {
+		log.Fatal(err)
+	}
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatal(err)

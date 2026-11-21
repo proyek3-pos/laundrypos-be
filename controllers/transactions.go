@@ -15,6 +15,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -78,8 +79,6 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	claims, _ := middleware.ClaimsFromContext(r.Context())
 	transaction := models.Transaction{
-		ID:              primitive.NewObjectID(),
-		InvoiceNumber:   services.NewInvoiceNumber(now),
 		CustomerID:      customerID,
 		Customer:        customer,
 		TransactionDate: now,
@@ -90,8 +89,22 @@ func CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		StatusHistory:   []models.StatusEvent{{Status: "pending", At: now, By: claims.Username}},
 	}
 
-	if _, err := config.TransactionCollection.InsertOne(ctx, transaction); err != nil {
-		utils.Err(w, http.StatusInternalServerError, "Gagal menyimpan transaksi")
+	// Suffix nomor nota acak: kalau menabrak index unik, coba lagi.
+	var inserted bool
+	for attempt := 0; attempt < 3 && !inserted; attempt++ {
+		transaction.ID = primitive.NewObjectID()
+		transaction.InvoiceNumber = services.NewInvoiceNumber(now)
+		if _, err := config.TransactionCollection.InsertOne(ctx, transaction); err != nil {
+			if !mongo.IsDuplicateKeyError(err) {
+				utils.Err(w, http.StatusInternalServerError, "Gagal menyimpan transaksi")
+				return
+			}
+			continue
+		}
+		inserted = true
+	}
+	if !inserted {
+		utils.Err(w, http.StatusInternalServerError, "Gagal membuat nomor nota")
 		return
 	}
 
@@ -304,8 +317,15 @@ func UpdateTransactionStatus(w http.ResponseWriter, r *http.Request) {
 		"$set":  bson.M{"status": req.Status},
 		"$push": bson.M{"statusHistory": models.StatusEvent{Status: req.Status, At: time.Now(), By: claims.Username}},
 	}
-	if _, err := config.TransactionCollection.UpdateOne(ctx, bson.M{"_id": objID}, update); err != nil {
+	// Guard status di filter: dua perubahan bersamaan tidak bisa sama-sama jalan.
+	res, err := config.TransactionCollection.UpdateOne(ctx,
+		bson.M{"_id": objID, "status": transaction.Status}, update)
+	if err != nil {
 		utils.Err(w, http.StatusInternalServerError, "Gagal memperbarui status")
+		return
+	}
+	if res.ModifiedCount == 0 {
+		utils.Err(w, http.StatusConflict, "Status pesanan baru saja berubah, muat ulang")
 		return
 	}
 

@@ -19,6 +19,10 @@ import (
 func main() {
 	_ = godotenv.Load()
 
+	if err := config.UseLocalTZ(); err != nil {
+		log.Fatal(err)
+	}
+
 	username := os.Getenv("ADMIN_USERNAME")
 	password := os.Getenv("ADMIN_PASSWORD")
 	if username == "" || password == "" {

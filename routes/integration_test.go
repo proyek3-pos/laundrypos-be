@@ -205,4 +205,40 @@ func TestFullFlow(t *testing.T) {
 	if code, body = request(t, "GET", "/reports/summary", adminToken, ""); code != http.StatusOK {
 		t.Fatalf("reports: %d %v", code, body)
 	}
+
+	// pesanan batal tidak boleh dibayar
+	code, body = request(t, "POST", "/transactions", staffToken, fmt.Sprintf(
+		`{"customerId":%q,"items":[{"serviceId":%q,"quantity":1}]}`, customerID, serviceID))
+	if code != http.StatusCreated {
+		t.Fatalf("create tx untuk batal: %d %v", code, body)
+	}
+	txID2 := body["data"].(map[string]any)["id"].(string)
+	if code, _ = request(t, "PATCH", "/transactions/"+txID2+"/status", staffToken, `{"status":"batal"}`); code != http.StatusOK {
+		t.Fatalf("batal: %d", code)
+	}
+	if code, _ = request(t, "POST", "/payments/cash", staffToken, fmt.Sprintf(
+		`{"transactionId":%q,"amountPaid":99999}`, txID2)); code != http.StatusBadRequest {
+		t.Fatalf("bayar pesanan batal: %d, want 400", code)
+	}
+}
+
+// Token yang sudah logout harus ditolak: revoked_tokens dicek di AuthMiddleware.
+func TestLogoutRevokesToken(t *testing.T) {
+	setupTest(t)
+
+	code, _ := request(t, "POST", "/register", "", `{"username":"logouttest","password":"password123"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("register: %d", code)
+	}
+	token := loginAs(t, "logouttest", "password123")
+
+	if code, _ := request(t, "GET", "/customers", token, ""); code != http.StatusOK {
+		t.Fatalf("token harus valid sebelum logout: %d", code)
+	}
+	if code, _ := request(t, "POST", "/logout", token, ""); code != http.StatusOK {
+		t.Fatalf("logout: %d", code)
+	}
+	if code, _ := request(t, "GET", "/customers", token, ""); code != http.StatusUnauthorized {
+		t.Fatalf("token setelah logout = %d, want 401", code)
+	}
 }

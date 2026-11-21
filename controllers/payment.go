@@ -20,6 +20,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// errAlreadyPaid menandai race dua kasir bayar bersamaan (bukan error sistem).
+var errAlreadyPaid = errors.New("pesanan sudah dibayar")
+
 // withTransaction menjalankan operasi multi-dokumen secara atomik.
 // Butuh replica set; MongoDB Atlas memang replica set.
 func withTransaction(ctx context.Context, fn func(mongo.SessionContext) error) error {
@@ -54,6 +57,10 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 	if transaction.PaymentStatus == "paid" {
 		utils.Err(w, http.StatusConflict, "Pesanan sudah dibayar")
+		return
+	}
+	if transaction.Status == "batal" {
+		utils.Err(w, http.StatusBadRequest, "Pesanan sudah dibatalkan")
 		return
 	}
 
@@ -99,7 +106,23 @@ func CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 	payment.SnapURL = snapResp.RedirectURL
 
+	// Partial unique index menahan dua Snap pending untuk transaksi yang sama;
+	// yang kalah balik memakai tagihan milik pemenang.
 	if _, err := config.PaymentCollection.InsertOne(ctx, payment); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			var winner models.Payment
+			if err := config.PaymentCollection.FindOne(ctx, bson.M{
+				"transactionId":  req.TransactionID,
+				"status":         "pending",
+				"payment_method": "midtrans",
+			}).Decode(&winner); err == nil {
+				utils.JSON(w, http.StatusOK, map[string]string{
+					"snap_url": winner.SnapURL,
+					"order_id": winner.OrderID,
+				})
+				return
+			}
+		}
 		utils.Err(w, http.StatusInternalServerError, "Gagal menyimpan pembayaran")
 		return
 	}
@@ -133,6 +156,10 @@ func CreateCashPayment(w http.ResponseWriter, r *http.Request) {
 		utils.Err(w, http.StatusConflict, "Pesanan sudah dibayar")
 		return
 	}
+	if transaction.Status == "batal" {
+		utils.Err(w, http.StatusBadRequest, "Pesanan sudah dibatalkan")
+		return
+	}
 	if req.AmountPaid < transaction.TotalAmount {
 		utils.Err(w, http.StatusBadRequest, "Uang diterima kurang dari total")
 		return
@@ -163,13 +190,17 @@ func CreateCashPayment(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if res.ModifiedCount == 0 {
-			return errors.New("pesanan sudah dibayar")
+			return errAlreadyPaid
 		}
 		_, err = config.PaymentCollection.InsertOne(sc, payment)
 		return err
 	})
 	if err != nil {
-		utils.Err(w, http.StatusConflict, "Pesanan sudah dibayar")
+		if errors.Is(err, errAlreadyPaid) {
+			utils.Err(w, http.StatusConflict, "Pesanan sudah dibayar")
+		} else {
+			utils.Err(w, http.StatusInternalServerError, "Gagal menyimpan pembayaran")
+		}
 		return
 	}
 

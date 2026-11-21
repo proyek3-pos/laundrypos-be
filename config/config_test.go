@@ -4,7 +4,24 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestUseLocalTZ(t *testing.T) {
+	t.Setenv("APP_TZ", "")
+	if err := UseLocalTZ(); err != nil {
+		t.Fatalf("Asia/Jakarta harus tersedia: %v", err)
+	}
+	t1 := time.Date(2026, 11, 21, 0, 0, 0, 0, time.Local)
+	if t1.UTC().Hour() != 17 {
+		t.Fatalf("default harus Asia/Jakarta (UTC+7), got %v", t1.UTC())
+	}
+
+	t.Setenv("APP_TZ", "Bukan/Timezone")
+	if err := UseLocalTZ(); err == nil {
+		t.Fatal("timezone tidak dikenal harus error")
+	}
+}
 
 func TestLoadConfigFailsWithoutMongoURI(t *testing.T) {
 	t.Setenv("MONGO_URI", "")

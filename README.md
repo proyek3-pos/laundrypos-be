@@ -43,4 +43,8 @@ Semua respons berbentuk `{success, message?, data?, meta?}`. Autentikasi JWT via
 
 ## Deploy (Vercel)
 
-`vercel.json` mem-build `api/main.go`. Set semua env di dashboard Vercel (bukan di file). **Penting:** kredensial Atlas dan kunci Midtrans lama pernah ter-commit ke git history, ganti/rotasi keduanya sebelum produksi.
+`vercel.json` mem-build `api/main.go`. Set semua env di dashboard Vercel (bukan di file), termasuk `APP_TZ=Asia/Jakarta` supaya batas "hari ini" di laporan mengikuti waktu toko, dan `MIDTRANS_ENV=production` saat sudah go-live. **Penting:** kredensial Atlas dan kunci Midtrans lama pernah ter-commit ke git history, ganti/rotasi keduanya sebelum produksi.
+
+Catatan: pembayaran cash dan webhook memakai transaksi Mongo (`WithTransaction`) yang butuh replica set. MongoDB Atlas sudah replica set; Mongo lokal standalone tidak akan bisa menjalankan pembayaran cash.
+
+Catatan keamanan: `/register` publik sehingga siapa pun dengan URL bisa mendaftar sebagai staf. Kalau app dipakai di internet, pertimbangkan menambah kode undangan atau menonaktifkan pendaftaran mandiri.

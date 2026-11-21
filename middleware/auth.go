@@ -2,8 +2,13 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"laundry-pos/config"
 	"laundry-pos/utils"
@@ -59,6 +64,21 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		if err != nil {
 			utils.Err(w, http.StatusUnauthorized, "Token tidak valid")
 			return
+		}
+		// Token yang sudah dicabut via logout tidak boleh diterima lagi.
+		// Nil hanya di unit test tanpa Mongo; integrasi selalu ada.
+		if config.RevokedTokenCollection != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			err = config.RevokedTokenCollection.FindOne(ctx, bson.M{"token": token[7:]}).Err()
+			cancel()
+			if err == nil {
+				utils.Err(w, http.StatusUnauthorized, "Token sudah logout")
+				return
+			}
+			if !errors.Is(err, mongo.ErrNoDocuments) {
+				utils.Err(w, http.StatusInternalServerError, "Gagal memeriksa sesi")
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(contextWithClaims(r.Context(), *claims)))
 	})

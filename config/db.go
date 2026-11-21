@@ -57,6 +57,22 @@ func EnsureIndexes(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Satu tagihan Midtrans pending per transaksi; menahan race dobel Snap.
+	_, err = PaymentCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"transactionId": 1},
+		Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{"payment_method": "midtrans", "status": "pending"}),
+	})
+	if err != nil {
+		return err
+	}
+	// Nomor nota harus unik.
+	_, err = TransactionCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.M{"invoiceNumber": 1},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
 	_, err = TransactionCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{Keys: bson.M{"customerId": 1}},
 		{Keys: bson.M{"status": 1}},

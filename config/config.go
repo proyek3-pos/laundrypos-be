@@ -4,6 +4,10 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
+
+	// Embed database timezone supaya APP_TZ jalan di semua platform.
+	_ "time/tzdata"
 )
 
 type Config struct {
@@ -53,4 +57,19 @@ func ParseCORSOrigins(s string) []string {
 		}
 	}
 	return out
+}
+
+// UseLocalTZ menyetel time.Local dari APP_TZ; default Asia/Jakarta supaya
+// batas "hari ini" di laporan mengikuti waktu toko, bukan UTC server.
+func UseLocalTZ() error {
+	name := os.Getenv("APP_TZ")
+	if name == "" {
+		name = "Asia/Jakarta"
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return err
+	}
+	time.Local = loc
+	return nil
 }

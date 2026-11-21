@@ -9,12 +9,15 @@ import (
 	"github.com/veritrans/go-midtrans"
 )
 
-// shortcut: masih Sandbox, butuh MIDTRANS_ENV saat ganti ke produksi.
 func MidtransClient() *midtrans.Client {
 	c := midtrans.NewClient()
 	c.ServerKey = os.Getenv("MIDTRANS_SERVER_KEY")
 	c.ClientKey = os.Getenv("MIDTRANS_CLIENT_KEY")
-	c.APIEnvType = midtrans.Sandbox
+	if os.Getenv("MIDTRANS_ENV") == "production" {
+		c.APIEnvType = midtrans.Production
+	} else {
+		c.APIEnvType = midtrans.Sandbox
+	}
 	return &c
 }
 

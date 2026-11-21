@@ -18,6 +18,10 @@ func init() {
 	// .env hanya ada saat lokal; di Vercel env diset lewat dashboard.
 	_ = godotenv.Load()
 
+	if err := config.UseLocalTZ(); err != nil {
+		log.Fatalf("timezone: %v", err)
+	}
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("config: %v", err)
